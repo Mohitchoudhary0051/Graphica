@@ -151,6 +151,23 @@ const Admin = (() => {
           </div>
         </div>
       </div>
+
+      <div class="grid-2 mt-6">
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Staff task assignments</h3>
+            <button class="btn btn-ghost btn-sm" onclick="App.navigateTo('admin-hazards')">Manage</button>
+          </div>
+          ${renderStaffTaskOverview()}
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Quiz assignment status</h3>
+            <button class="btn btn-ghost btn-sm" onclick="App.navigateTo('assignments')">View all</button>
+          </div>
+          ${renderAssignmentStatusOverview()}
+        </div>
+      </div>
     `;
     App.refreshIcons();
   }
@@ -406,14 +423,19 @@ const Admin = (() => {
 
     container.innerHTML = `
       <div class="page-header">
-        <div class="flex items-center justify-between">
+        <div class="flex items-center justify-between" style="flex-wrap:wrap;gap:12px;">
           <div>
             <h1 class="page-title">Emergency alerts</h1>
             <p class="page-subtitle">Create and manage safety alerts and announcements</p>
           </div>
-          <button class="btn btn-primary" onclick="Admin.createAlert()">
-            ${App.icon('plus', 16)} Create alert
-          </button>
+          <div class="flex gap-2" style="flex-wrap:wrap;">
+            <button class="btn btn-sm" onclick="App.openEmergencyBroadcastModal()" style="background:var(--red);color:#fff;display:inline-flex;align-items:center;gap:6px;font-weight:600;padding:8px 16px;border-radius:6px;border:none;box-shadow:0 2px 8px rgba(229,62,62,0.35);cursor:pointer;">
+              ${App.icon('siren', 16)} Broadcast Emergency Alert
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="Admin.createAlert()">
+              ${App.icon('plus', 16)} Create announcement
+            </button>
+          </div>
         </div>
       </div>
 
@@ -763,44 +785,283 @@ const Admin = (() => {
     renderDrills(document.getElementById('main-view'));
   }
 
-  // ── User Management ───────────────────
-  function renderUsers(container) {
-    const users = Storage.getData(Storage.KEYS.USERS, []);
+  // ── User Management & Live Sessions Telemetry ───
+  let userFilterQuery = '';
+  let userRoleFilter = 'all';
+
+  async function renderUsers(container) {
+    // Only Admin is allowed
+    if (!Auth.isAdmin()) {
+      container.innerHTML = `<div class="card"><p class="text-small">Access restricted. Admin credentials required.</p></div>`;
+      return;
+    }
+
+    // Attempt to fetch fresh users from backend or fallback to storage
+    let users = Storage.getData(Storage.KEYS.USERS, []);
+    try {
+      if (typeof SocketClient !== 'undefined') {
+        const backendUsers = await SocketClient.fetchAllUsers();
+        if (backendUsers && backendUsers.length > 0) {
+          users = backendUsers;
+          Storage.saveData(Storage.KEYS.USERS, users);
+        }
+      }
+    } catch (e) {
+      console.warn('Using local users cache:', e);
+    }
+
+    // Fetch active connected sessions
+    let activeData = { totalConnected: 0, sessions: [] };
+    try {
+      if (typeof SocketClient !== 'undefined') {
+        activeData = await SocketClient.fetchActiveUsers();
+      }
+    } catch (e) {
+      console.warn('Could not fetch active sessions:', e);
+    }
+
+    const students = users.filter(u => u.role === 'student');
+    const staff = users.filter(u => u.role === 'staff');
+    const admins = users.filter(u => u.role === 'admin');
 
     container.innerHTML = `
-      <div class="page-header">
-        <h1 class="page-title">Users</h1>
-        <p class="page-subtitle">Manage user accounts and roles</p>
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 class="page-title">Users & Connected Devices</h1>
+          <p class="page-subtitle">Live device sessions, user directories, and role permissions (Admin Exclusive)</p>
+        </div>
+        <div class="flex gap-2" style="flex-wrap:wrap;">
+          <button class="btn btn-sm" onclick="App.openEmergencyBroadcastModal()" style="background:var(--red);color:#fff;display:inline-flex;align-items:center;gap:6px;font-weight:600;padding:8px 16px;border-radius:6px;border:none;box-shadow:0 2px 8px rgba(229,62,62,0.35);cursor:pointer;">
+            ${App.icon('siren', 16)} Broadcast Emergency Alert
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="Admin.createUser()">
+            ${App.icon('user-plus', 16)} Create user
+          </button>
+        </div>
       </div>
 
+      <!-- Live Connected Devices & Telemetry -->
+      <div class="card mb-6" style="border:1px solid #10B98144;background:var(--surface);box-shadow:0 4px 16px rgba(16,185,129,0.06);">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border-bottom:1px solid var(--border-light);padding-bottom:14px;margin-bottom:14px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="position:relative;display:flex;height:12px;width:12px;">
+              <span style="animation:ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;position:absolute;display:inline-flex;height:100%;width:100%;border-radius:9999px;background-color:#10B981;opacity:0.75;"></span>
+              <span style="position:relative;display:inline-flex;border-radius:9999px;height:12px;width:12px;background-color:#059669;"></span>
+            </span>
+            <h3 class="card-title" style="margin:0;font-size:16px;">Current Connected Users & Live Devices</h3>
+            <span class="badge badge-green" id="live-telemetry-badge">${activeData.totalConnected || 0} Active Sessions</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
+            ${App.icon('radio', 14)} <span>Real-time WebSocket connection (/ws)</span>
+          </div>
+        </div>
+
+        <div id="live-sessions-table-wrapper">
+          ${renderLiveSessionsTableHtml(activeData)}
+        </div>
+      </div>
+
+      <!-- Stats Grid for Registered Users -->
+      <div class="stat-grid mb-6">
+        <div class="stat-card">
+          <div class="stat-label">Total registered users</div>
+          <div class="stat-value">${users.length}</div>
+          <div class="stat-meta">Active & inactive accounts</div>
+        </div>
+        <div class="stat-card stat-blue">
+          <div class="stat-label">Students</div>
+          <div class="stat-value">${students.length}</div>
+          <div class="stat-meta">Undergraduate & Graduate</div>
+        </div>
+        <div class="stat-card stat-amber">
+          <div class="stat-label">Faculty & Staff</div>
+          <div class="stat-value">${staff.length}</div>
+          <div class="stat-meta">Safety, Maintenance & Instructors</div>
+        </div>
+        <div class="stat-card stat-purple">
+          <div class="stat-label">System Admins</div>
+          <div class="stat-value">${admins.length}</div>
+          <div class="stat-meta">Full platform privileges</div>
+        </div>
+      </div>
+
+      <!-- Registered Users Directory -->
+      <div class="card">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+          <h3 class="card-title" style="margin:0;">Registered Users Directory</h3>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input type="text" class="form-input" id="admin-user-search" placeholder="Search by name, email, department…" style="width:240px;font-size:13px;padding:6px 12px;" oninput="Admin.filterUserTable(this.value)" value="${App.escapeHtml(userFilterQuery)}">
+            <select class="form-select" id="admin-user-role-filter" style="width:140px;font-size:13px;padding:6px 12px;" onchange="Admin.filterUserRole(this.value)">
+              <option value="all" ${userRoleFilter === 'all' ? 'selected' : ''}>All Roles</option>
+              <option value="student" ${userRoleFilter === 'student' ? 'selected' : ''}>Students</option>
+              <option value="staff" ${userRoleFilter === 'staff' ? 'selected' : ''}>Staff</option>
+              <option value="admin" ${userRoleFilter === 'admin' ? 'selected' : ''}>Admins</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-container" id="admin-users-table-container">
+          ${renderUserTableRows(users)}
+        </div>
+      </div>
+    `;
+    App.refreshIcons();
+  }
+
+  function renderLiveSessionsTableHtml(activeData) {
+    const sessions = activeData.sessions || [];
+    if (sessions.length === 0) {
+      return `
+        <div class="empty-state" style="padding:var(--sp-6);">
+          <div class="empty-icon">${App.icon('wifi-off', 32)}</div>
+          <h4 class="empty-title" style="font-size:15px;">No active device sessions</h4>
+          <p class="empty-text" style="font-size:13px;">Connected users and devices will appear here in real time.</p>
+        </div>
+      `;
+    }
+
+    return `
       <div class="table-container">
         <table class="data-table">
           <thead>
-            <tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th>Actions</th></tr>
+            <tr>
+              <th>Connected User</th>
+              <th>Role</th>
+              <th>Device / Platform</th>
+              <th>Connected Since</th>
+              <th>Emergency Gateway</th>
+            </tr>
           </thead>
           <tbody>
-            ${users.map(u => `
-              <tr>
-                <td style="font-weight:500;">${App.escapeHtml(u.name)}</td>
-                <td class="text-small">${App.escapeHtml(u.email)}</td>
-                <td>${App.getStatusBadge(u.role)}</td>
-                <td class="text-small">${App.escapeHtml(u.department)}</td>
-                <td><span class="badge ${u.status === 'active' ? 'badge-green' : 'badge-neutral'}">${App.capitalize(u.status)}</span></td>
-                <td>
-                  <div class="table-actions">
-                    <button class="btn btn-ghost btn-sm" onclick="Admin.editUser('${u.id}')">Edit</button>
-                    <button class="btn btn-ghost btn-sm" onclick="Admin.toggleUserStatus('${u.id}')" style="color:${u.status === 'active' ? 'var(--red)' : 'var(--green)'};">
-                      ${u.status === 'active' ? 'Deactivate' : 'Activate'}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            `).join('')}
+            ${sessions.map(s => {
+              const u = s.user || { name: 'Visitor Device', role: 'guest', email: 'guest@device' };
+              const isGuest = u.role === 'guest';
+              const connectedTime = s.connectedAt ? new Date(s.connectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Recently';
+
+              return `
+                <tr>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                      <div style="width:34px;height:34px;border-radius:50%;background:var(--border-light);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;color:var(--text);">
+                        ${Auth.getInitials(u.name || 'Visitor')}
+                      </div>
+                      <div>
+                        <div style="font-weight:600;font-size:13px;">${App.escapeHtml(u.name || 'Anonymous Device')}</div>
+                        <div class="text-xs" style="color:var(--text-muted);">${App.escapeHtml(u.email || 'device@local')}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    ${isGuest ? '<span class="badge badge-neutral">Visitor</span>' : App.getStatusBadge(u.role)}
+                  </td>
+                  <td>
+                    <div style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                      <span style="color:var(--text-muted);">${App.icon(s.deviceType?.includes('Mobile') ? 'smartphone' : 'monitor', 16)}</span>
+                      <span>${App.escapeHtml(s.deviceType || 'Browser Session')}</span>
+                    </div>
+                  </td>
+                  <td class="text-small">
+                    ${connectedTime}
+                  </td>
+                  <td>
+                    <span class="badge badge-green" style="display:inline-flex;align-items:center;gap:5px;">
+                      <span style="width:6px;height:6px;border-radius:50%;background:#10B981;display:inline-block;"></span>
+                      Listening for Alerts
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       </div>
     `;
-    App.refreshIcons();
+  }
+
+  function renderUserTableRows(users) {
+    let filtered = users;
+    if (userRoleFilter !== 'all') {
+      filtered = filtered.filter(u => u.role === userRoleFilter);
+    }
+    if (userFilterQuery) {
+      const q = userFilterQuery.toLowerCase();
+      filtered = filtered.filter(u =>
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.department && u.department.toLowerCase().includes(q))
+      );
+    }
+
+    if (filtered.length === 0) {
+      return `<p class="text-small" style="padding:24px;text-align:center;color:var(--text-muted);">No matching users found.</p>`;
+    }
+
+    return `
+      <table class="data-table">
+        <thead>
+          <tr><th>Name</th><th>Email</th><th>Role</th><th>Department</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          ${filtered.map(u => `
+            <tr>
+              <td>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <div style="width:32px;height:32px;border-radius:50%;background:var(--surface-hover);border:1px solid var(--border-light);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:12px;">
+                    ${Auth.getInitials(u.name)}
+                  </div>
+                  <span style="font-weight:600;">${App.escapeHtml(u.name)}</span>
+                </div>
+              </td>
+              <td class="text-small">${App.escapeHtml(u.email)}</td>
+              <td>${App.getStatusBadge(u.role)}</td>
+              <td class="text-small">${App.escapeHtml(u.department || '—')}</td>
+              <td><span class="badge ${u.status === 'active' ? 'badge-green' : 'badge-neutral'}">${App.capitalize(u.status)}</span></td>
+              <td>
+                <div class="table-actions">
+                  <button class="btn btn-ghost btn-sm" onclick="Admin.editUser('${u.id}')">Edit</button>
+                  <button class="btn btn-ghost btn-sm" onclick="Admin.toggleUserStatus('${u.id}')" style="color:${u.status === 'active' ? 'var(--red)' : 'var(--green)'};">
+                    ${u.status === 'active' ? 'Deactivate' : 'Activate'}
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function filterUserTable(query) {
+    userFilterQuery = query;
+    const users = Storage.getData(Storage.KEYS.USERS, []);
+    const container = document.getElementById('admin-users-table-container');
+    if (container) {
+      container.innerHTML = renderUserTableRows(users);
+      App.refreshIcons();
+    }
+  }
+
+  function filterUserRole(role) {
+    userRoleFilter = role;
+    const users = Storage.getData(Storage.KEYS.USERS, []);
+    const container = document.getElementById('admin-users-table-container');
+    if (container) {
+      container.innerHTML = renderUserTableRows(users);
+      App.refreshIcons();
+    }
+  }
+
+  // Live real-time update hook called by SocketClient when PRESENCE_UPDATE is received
+  function updateLiveUsersUI(activeData) {
+    const badge = document.getElementById('live-telemetry-badge');
+    if (badge) {
+      badge.innerText = `${activeData.totalConnected || 0} Active Sessions`;
+    }
+    const wrapper = document.getElementById('live-sessions-table-wrapper');
+    if (wrapper) {
+      wrapper.innerHTML = renderLiveSessionsTableHtml(activeData);
+      App.refreshIcons();
+    }
   }
 
   function editUser(userId) {
@@ -825,7 +1086,7 @@ const Admin = (() => {
         </div>
         <div class="form-group">
           <label class="form-label">Department</label>
-          <input class="form-input" id="edit-user-dept" value="${App.escapeHtml(user.department)}">
+          <input class="form-input" id="edit-user-dept" value="${App.escapeHtml(user.department || '')}">
         </div>
       `,
       footer: `
@@ -835,28 +1096,65 @@ const Admin = (() => {
     });
   }
 
-  function saveUserEdit(userId) {
+  async function saveUserEdit(userId) {
     const users = Storage.getData(Storage.KEYS.USERS, []);
     const idx = users.findIndex(u => u.id === userId);
     if (idx === -1) return;
 
-    users[idx].name = document.getElementById('edit-user-name')?.value?.trim() || users[idx].name;
-    users[idx].role = document.getElementById('edit-user-role')?.value || users[idx].role;
-    users[idx].department = document.getElementById('edit-user-dept')?.value?.trim() || users[idx].department;
+    const newName = document.getElementById('edit-user-name')?.value?.trim() || users[idx].name;
+    const newRole = document.getElementById('edit-user-role')?.value || users[idx].role;
+    const newDept = document.getElementById('edit-user-dept')?.value?.trim() || users[idx].department;
+
+    users[idx].name = newName;
+    users[idx].role = newRole;
+    users[idx].department = newDept;
 
     Storage.saveData(Storage.KEYS.USERS, users);
+
+    // Sync to backend
+    try {
+      const currentUser = Auth.getCurrentUser();
+      await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': currentUser?.role || 'admin'
+        },
+        body: JSON.stringify({ name: newName, role: newRole, department: newDept })
+      });
+    } catch (e) {
+      console.warn('Backend sync failed:', e);
+    }
+
     App.closeModal();
     App.showToast('User updated.', 'success');
     renderUsers(document.getElementById('main-view'));
   }
 
-  function toggleUserStatus(userId) {
+  async function toggleUserStatus(userId) {
     const users = Storage.getData(Storage.KEYS.USERS, []);
     const idx = users.findIndex(u => u.id === userId);
     if (idx === -1) return;
-    users[idx].status = users[idx].status === 'active' ? 'inactive' : 'active';
+    const nextStatus = users[idx].status === 'active' ? 'inactive' : 'active';
+    users[idx].status = nextStatus;
     Storage.saveData(Storage.KEYS.USERS, users);
-    App.showToast(`User ${users[idx].status === 'active' ? 'activated' : 'deactivated'}.`, 'info');
+
+    // Sync to backend
+    try {
+      const currentUser = Auth.getCurrentUser();
+      await fetch(`/api/users/${userId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': currentUser?.role || 'admin'
+        },
+        body: JSON.stringify({ status: nextStatus })
+      });
+    } catch (e) {
+      console.warn('Backend sync failed:', e);
+    }
+
+    App.showToast(`User ${nextStatus === 'active' ? 'activated' : 'deactivated'}.`, 'info');
     renderUsers(document.getElementById('main-view'));
   }
 
@@ -1262,6 +1560,321 @@ const Admin = (() => {
     App.showToast('Preference updated.', 'info');
   }
 
+  // ── Admin: Assignment Status Overview ──
+  function renderAssignmentStatusOverview() {
+    const assignments = Training.read('quiz_assignments').filter(a => !a.demo);
+    if (assignments.length === 0) return '<p class="text-small">No assignments created yet.</p>';
+
+    const users = Storage.getData(Storage.KEYS.USERS, []);
+    const completed = assignments.filter(a => a.score !== null && a.score !== undefined);
+    const pending = assignments.filter(a => a.score === null || a.score === undefined);
+    const passed = completed.filter(a => a.score >= a.passingScore);
+
+    return `
+      <div class="stat-grid mb-4" style="grid-template-columns: repeat(3, 1fr);">
+        <div style="text-align:center;">
+          <div style="font-size:var(--text-2xl);font-weight:700;">${assignments.length}</div>
+          <div class="text-xs">Total</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:var(--text-2xl);font-weight:700;color:var(--amber);">${pending.length}</div>
+          <div class="text-xs">Pending</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:var(--text-2xl);font-weight:700;color:var(--green);">${passed.length}</div>
+          <div class="text-xs">Passed</div>
+        </div>
+      </div>
+      ${pending.slice(0, 3).map(a => {
+        const student = users.find(u => u.id === a.studentId);
+        return `
+          <div style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--border-light);">
+            <div style="flex:1;">
+              <div style="font-size:var(--text-sm);font-weight:500;">${App.escapeHtml(student?.name || 'Unknown')}</div>
+              <div class="text-xs">${App.capitalize(a.quizId.replace(/-/g, ' '))} · Due ${a.dueDate || 'No deadline'}</div>
+            </div>
+            <span class="badge badge-amber">Pending</span>
+          </div>
+        `;
+      }).join('')}
+    `;
+  }
+
+  // ── Staff: My Tasks ──────────────────
+  function renderMyTasks(container) {
+    const user = Auth.getCurrentUser();
+    const reports = Storage.getData(Storage.KEYS.REPORTS, []);
+    const assignedToMe = reports.filter(r => r.assignedTo === user.id);
+    const pending = assignedToMe.filter(r => r.status !== 'resolved');
+    const resolved = assignedToMe.filter(r => r.status === 'resolved');
+
+    container.innerHTML = `
+      <div class="page-header">
+        <h1 class="page-title">My assigned tasks</h1>
+        <p class="page-subtitle">Hazard reports assigned to you for action</p>
+      </div>
+
+      <div class="stat-grid mb-6">
+        <div class="stat-card stat-orange">
+          <div class="stat-label">Pending</div>
+          <div class="stat-value">${pending.length}</div>
+          <div class="stat-meta">Need your action</div>
+        </div>
+        <div class="stat-card stat-green">
+          <div class="stat-label">Resolved</div>
+          <div class="stat-value">${resolved.length}</div>
+          <div class="stat-meta">Completed by you</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total assigned</div>
+          <div class="stat-value">${assignedToMe.length}</div>
+        </div>
+      </div>
+
+      ${pending.length > 0 ? `
+        <div class="section-label mb-3">Pending tasks (${pending.length})</div>
+        <div class="flex flex-col gap-3 mb-8">
+          ${pending.map(r => `
+            <div class="card" style="display:flex;align-items:flex-start;gap:var(--sp-4);border-left:4px solid ${r.severity === 'high' || r.severity === 'critical' ? 'var(--red)' : 'var(--amber)'};">
+              <div style="flex:1;">
+                <div class="flex items-center gap-2 mb-1">
+                  ${App.getSeverityBadge(r.severity)}
+                  ${App.getStatusBadge(r.status)}
+                </div>
+                <div style="font-size:var(--text-base);font-weight:600;margin-bottom:var(--sp-1);">${App.escapeHtml(r.title)}</div>
+                <div class="text-small">${App.escapeHtml(r.location)}</div>
+                <div class="text-xs mt-1">${App.escapeHtml(r.description)}</div>
+                ${r.notes && r.notes.length > 0 ? `
+                  <div style="margin-top:var(--sp-3);border-top:1px solid var(--border-light);padding-top:var(--sp-2);">
+                    ${r.notes.map(n => `
+                      <div class="text-xs" style="color:var(--text-muted);margin-bottom:var(--sp-1);"><strong>${App.escapeHtml(n.author)}</strong> (${n.date}): ${App.escapeHtml(n.text)}</div>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+              <div class="flex flex-col gap-2">
+                <button class="btn btn-secondary btn-sm" onclick="Admin.updateMyTask('${r.id}')">Update status</button>
+                <button class="btn btn-ghost btn-sm" onclick="Hazards.viewReport('${r.id}')">View details</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : '<div class="card mb-6"><p class="text-small">No pending tasks assigned to you.</p></div>'}
+
+      ${resolved.length > 0 ? `
+        <div class="section-label mb-3">Completed (${resolved.length})</div>
+        <div class="flex flex-col gap-3">
+          ${resolved.map(r => `
+            <div class="card" style="display:flex;align-items:center;gap:var(--sp-4);opacity:0.8;">
+              <div style="flex:1;">
+                <div style="font-size:var(--text-sm);font-weight:500;">${App.escapeHtml(r.title)}</div>
+                <div class="text-xs">${App.escapeHtml(r.location)} · Resolved ${r.resolvedDate || ''}</div>
+              </div>
+              <span class="badge badge-green">${App.icon('check', 12)} Resolved</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `;
+    App.refreshIcons();
+  }
+
+  function updateMyTask(reportId) {
+    const reports = Storage.getData(Storage.KEYS.REPORTS, []);
+    const report = reports.find(r => r.id === reportId);
+    if (!report) return;
+
+    App.showModal({
+      title: `Update task: ${report.title}`,
+      body: `
+        <div class="mb-4">
+          <div class="text-small">${App.escapeHtml(report.location)} · ${App.escapeHtml(report.category)}</div>
+          <div class="text-xs mt-1">${App.escapeHtml(report.description)}</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select class="form-select" id="task-status">
+            <option value="assigned" ${report.status === 'assigned' ? 'selected' : ''}>Assigned</option>
+            <option value="in-progress" ${report.status === 'in-progress' ? 'selected' : ''}>In progress</option>
+            <option value="resolved" ${report.status === 'resolved' ? 'selected' : ''}>Resolved</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Add note</label>
+          <textarea class="form-textarea" id="task-note" placeholder="Describe what you did…" style="min-height:80px;"></textarea>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="Admin.saveMyTaskUpdate('${reportId}')">Save update</button>
+      `
+    });
+  }
+
+  function saveMyTaskUpdate(reportId) {
+    const reports = Storage.getData(Storage.KEYS.REPORTS, []);
+    const idx = reports.findIndex(r => r.id === reportId);
+    if (idx === -1) return;
+
+    const newStatus = document.getElementById('task-status')?.value;
+    const note = document.getElementById('task-note')?.value?.trim();
+    const user = Auth.getCurrentUser();
+
+    reports[idx].status = newStatus;
+    if (newStatus === 'resolved') reports[idx].resolvedDate = new Date().toISOString().split('T')[0];
+
+    if (note) {
+      if (!reports[idx].notes) reports[idx].notes = [];
+      reports[idx].notes.push({
+        author: user.name,
+        date: new Date().toISOString().split('T')[0],
+        text: note
+      });
+    }
+
+    Storage.saveData(Storage.KEYS.REPORTS, reports);
+
+    // Notify admin/reporter
+    App.addNotification(reports[idx].reporter, `Your hazard report ${reportId} is now ${newStatus.replace(/-/g, ' ')}.`, 'report');
+    // Notify all admins
+    const users = Storage.getData(Storage.KEYS.USERS, []);
+    users.filter(u => u.role === 'admin').forEach(admin => {
+      App.addNotification(admin.id, `${user.name} updated task ${reportId}: ${newStatus.replace(/-/g, ' ')}${note ? ' — ' + note.slice(0, 80) : ''}.`, 'report');
+    });
+
+    App.closeModal();
+    App.showToast('Task updated.', 'success');
+    renderMyTasks(document.getElementById('main-view'));
+  }
+
+  // ── Admin: Staff Task Overview ────────
+  function renderStaffTaskOverview() {
+    const reports = Storage.getData(Storage.KEYS.REPORTS, []);
+    const users = Storage.getData(Storage.KEYS.USERS, []);
+    const staffUsers = users.filter(u => u.role === 'staff' || u.role === 'admin');
+    const assigned = reports.filter(r => r.assignedTo);
+
+    if (assigned.length === 0) return '<p class="text-small">No tasks assigned yet.</p>';
+
+    return `
+      <div style="display:flex;flex-direction:column;gap:var(--sp-3);">
+        ${staffUsers.map(staff => {
+          const tasks = assigned.filter(r => r.assignedTo === staff.id);
+          if (tasks.length === 0) return '';
+          const pending = tasks.filter(r => r.status !== 'resolved').length;
+          const resolved = tasks.filter(r => r.status === 'resolved').length;
+          return `
+            <div style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3);border:1px solid var(--border-light);border-radius:var(--radius);">
+              <div class="user-avatar" style="width:32px;height:32px;font-size:12px;">${Auth.getInitials(staff.name)}</div>
+              <div style="flex:1;">
+                <div style="font-size:var(--text-sm);font-weight:500;">${App.escapeHtml(staff.name)}</div>
+                <div class="text-xs">${pending} pending · ${resolved} resolved</div>
+              </div>
+              <div class="flex gap-2">
+                ${tasks.filter(r => r.status !== 'resolved').slice(0, 2).map(r => App.getSeverityBadge(r.severity)).join('')}
+              </div>
+            </div>
+          `;
+        }).filter(Boolean).join('') || '<p class="text-small">No tasks assigned to staff.</p>'}
+      </div>
+    `;
+  }
+
+  // ── Admin: Create User ───────────────
+  function createUser() {
+    App.showModal({
+      title: 'Create new user',
+      body: `
+        <div class="form-group">
+          <label class="form-label">Full name <span class="required">*</span></label>
+          <input class="form-input" id="new-user-name" placeholder="e.g., Amit Kumar" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email <span class="required">*</span></label>
+          <input class="form-input" type="email" id="new-user-email" placeholder="e.g., amit@greenfield.edu" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password <span class="required">*</span></label>
+          <input class="form-input" type="text" id="new-user-password" value="demo123" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Role</label>
+          <select class="form-select" id="new-user-role">
+            <option value="student">Student</option>
+            <option value="staff">Staff</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Department</label>
+          <input class="form-input" id="new-user-dept" placeholder="e.g., Computer Science">
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="Admin.saveNewUser()">Create user</button>
+      `
+    });
+  }
+
+  function saveNewUser() {
+    const name = document.getElementById('new-user-name')?.value?.trim();
+    const email = document.getElementById('new-user-email')?.value?.trim();
+    const password = document.getElementById('new-user-password')?.value?.trim();
+    const role = document.getElementById('new-user-role')?.value;
+    const department = document.getElementById('new-user-dept')?.value?.trim();
+
+    if (!name || !email || !password) {
+      App.showToast('Please fill in all required fields.', 'error');
+      return;
+    }
+
+    const users = Storage.getData(Storage.KEYS.USERS, []);
+    if (users.some(u => u.email.toLowerCase() === email.toLowerCase())) {
+      App.showToast('A user with this email already exists.', 'error');
+      return;
+    }
+
+    users.push({
+      id: 'user-' + Date.now(),
+      name,
+      email,
+      password,
+      role,
+      department: department || 'General',
+      avatar: null,
+      status: 'active',
+      joinDate: new Date().toISOString().split('T')[0]
+    });
+
+    Storage.saveData(Storage.KEYS.USERS, users);
+
+    // Sync to backend server
+    try {
+      const currentUser = Auth.getCurrentUser();
+      fetch('/api/users', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': currentUser?.role || 'admin'
+        },
+        body: JSON.stringify({
+          name,
+          email,
+          password,
+          role,
+          department: department || 'General'
+        })
+      }).catch(e => console.warn('Backend sync failed:', e));
+    } catch (e) {
+      console.warn('Backend sync exception:', e);
+    }
+
+    App.closeModal();
+    App.showToast('User created. They can now log in.', 'success');
+    renderUsers(document.getElementById('main-view'));
+  }
+
   return {
     renderDashboard,
     renderHazards,
@@ -1283,12 +1896,22 @@ const Admin = (() => {
     editUser,
     saveUserEdit,
     toggleUserStatus,
+    filterUserTable,
+    filterUserRole,
+    updateLiveUsersUI,
     renderLearningMgmt,
     renderSimulationMgmt,
     renderAnalytics,
     renderSettings,
     saveInstitutionSettings,
     updateNotifPref,
-    calculateFacilityRisk
+    calculateFacilityRisk,
+    renderMyTasks,
+    updateMyTask,
+    saveMyTaskUpdate,
+    renderStaffTaskOverview,
+    createUser,
+    saveNewUser
   };
 })();
+

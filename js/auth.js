@@ -40,6 +40,9 @@ const Auth = (() => {
     };
 
     Storage.saveData(Storage.KEYS.SESSION, session);
+    if (typeof SocketClient !== 'undefined' && SocketClient.identifyCurrentUser) {
+      SocketClient.identifyCurrentUser();
+    }
     return { success: true, user: session };
   }
 
@@ -48,6 +51,9 @@ const Auth = (() => {
    */
   function logout() {
     Storage.removeData(Storage.KEYS.SESSION);
+    if (typeof SocketClient !== 'undefined' && SocketClient.identifyCurrentUser) {
+      SocketClient.identifyCurrentUser();
+    }
   }
 
   /**

@@ -112,8 +112,56 @@ const Dashboard = (() => {
           </div>
         </div>
       </div>
+
+      ${renderStudentAssignments(user.id)}
     `;
     App.refreshIcons();
+  }
+
+  function renderStudentAssignments(userId) {
+    const assignments = Training.read('quiz_assignments').filter(a => a.studentId === userId);
+    if (assignments.length === 0) return '';
+
+    const pending = assignments.filter(a => a.score === null || a.score === undefined);
+    const completed = assignments.filter(a => a.score !== null && a.score !== undefined);
+
+    return `
+      <div class="card mt-6">
+        <div class="card-header">
+          <h3 class="card-title">${App.icon('clipboard-list', 18)} Assigned assessments</h3>
+          <button class="btn btn-ghost btn-sm" onclick="App.navigateTo('assignments')">View all</button>
+        </div>
+        ${pending.length > 0 ? `
+          <div style="display:flex;flex-direction:column;gap:var(--sp-3);margin-bottom:${completed.length > 0 ? 'var(--sp-4)' : '0'};">
+            ${pending.map(a => `
+              <div style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3);border:1px solid var(--border-light);border-radius:var(--radius);border-left:4px solid var(--amber);">
+                <div style="flex:1;">
+                  <div style="font-size:var(--text-sm);font-weight:600;">${App.capitalize(a.quizId.replace(/-/g, ' '))} Quiz</div>
+                  <div class="text-xs">${a.dueDate ? 'Due ' + App.formatDate(a.dueDate) : 'No deadline'} · Pass: ${a.passingScore}%</div>
+                </div>
+                <button class="btn btn-primary btn-sm" onclick="App.navigateTo('quiz-${a.quizId}')">
+                  ${App.icon('play', 14)} Start
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        ${completed.length > 0 ? `
+          <div style="display:flex;flex-direction:column;gap:var(--sp-2);">
+            ${completed.map(a => `
+              <div style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);opacity:0.85;">
+                <div style="flex:1;">
+                  <div style="font-size:var(--text-sm);font-weight:500;">${App.capitalize(a.quizId.replace(/-/g, ' '))} Quiz</div>
+                </div>
+                <span class="badge ${a.score >= a.passingScore ? 'badge-green' : 'badge-red'}">${a.score}% ${a.score >= a.passingScore ? '✓ Passed' : '✗ Below passing'}</span>
+                ${a.score < a.passingScore ? `<button class="btn btn-ghost btn-sm" onclick="App.navigateTo('quiz-${a.quizId}')">Retake</button>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        ${assignments.length === 0 ? '<p class="text-small">No assessments assigned to you.</p>' : ''}
+      </div>
+    `;
   }
 
   function renderModuleProgress(modules, progress) {

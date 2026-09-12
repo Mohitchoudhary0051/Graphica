@@ -25,9 +25,16 @@ const Alerts = (() => {
     });
 
     container.innerHTML = `
-      <div class="page-header">
-        <h1 class="page-title">Emergency alerts</h1>
-        <p class="page-subtitle">Active safety alerts and announcements</p>
+      <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <h1 class="page-title">Emergency alerts</h1>
+          <p class="page-subtitle">Active safety alerts and announcements</p>
+        </div>
+        ${(typeof Auth !== 'undefined' && Auth.isStaff()) ? `
+          <button class="btn btn-sm" onclick="App.openEmergencyBroadcastModal()" style="background:var(--red);color:#fff;display:inline-flex;align-items:center;gap:6px;font-weight:600;padding:8px 16px;border-radius:6px;border:none;box-shadow:0 2px 8px rgba(229,62,62,0.35);cursor:pointer;">
+            ${App.icon('siren', 16)} Broadcast Emergency Alert
+          </button>
+        ` : ''}
       </div>
 
       ${activeAlerts.length === 0 ? `

@@ -821,6 +821,116 @@ const DemoData = (() => {
           ]
         }
       ]
+    },
+    {
+      id: 'sim-flood',
+      title: 'Flood on Campus',
+      category: 'flood',
+      icon: 'droplets',
+      difficulty: 'Intermediate',
+      duration: '8 min',
+      description: 'Heavy rain causes flooding on campus. Navigate the rising water safely.',
+      steps: [
+        {
+          id: 's1',
+          narrative: 'You are on the ground floor of Block A during a heavy rainstorm. Water is beginning to seep under the main entrance doors. The corridor floor is getting wet and the water level is slowly rising. Other students are looking around nervously.',
+          question: 'What is your immediate response?',
+          choices: [
+            { text: 'Walk through the water to reach the main exit and leave campus', correct: false, feedback: 'Incorrect. Walking through floodwater is dangerous — it may be electrically charged from submerged outlets or contaminated. Even shallow moving water can knock you down.' },
+            { text: 'Move to the upper floors immediately and alert others', correct: true, feedback: 'Correct. Moving to higher ground is the safest response during flooding. Upper floors provide safety from rising water. Alert others as you go.' },
+            { text: 'Try to block the water with furniture and bags', correct: false, feedback: 'Incorrect. Attempting to block floodwater wastes valuable time. The priority is getting to higher ground before water levels rise further.' },
+            { text: 'Go to the basement to check the drainage system', correct: false, feedback: 'Incorrect. Basements are the most dangerous place during flooding. They flood first and can trap you. Always move upward.' }
+          ]
+        },
+        {
+          id: 's2',
+          narrative: 'You are now on the second floor with several other students. The water on the ground floor is knee-deep. You notice that some electrical outlets on the ground floor are now submerged. A student suggests going back down to retrieve a laptop.',
+          question: 'What should you do?',
+          choices: [
+            { text: 'Let them go — it is their decision', correct: false, feedback: 'Incorrect. You should actively discourage anyone from entering floodwater, especially near submerged electrical equipment. Electrocution is a serious risk.' },
+            { text: 'Advise them strongly against going back and explain the electrical hazard', correct: true, feedback: 'Correct. Submerged electrical outlets make floodwater extremely dangerous. No belongings are worth risking electrocution. Stay on higher floors until help arrives.' },
+            { text: 'Go with them to help carry things quickly', correct: false, feedback: 'Incorrect. Going back into floodwater puts both of you at risk. Submerged electrical systems can electrify the water.' },
+            { text: 'Disconnect the building power by going to the basement panel', correct: false, feedback: 'Incorrect. The basement is flooded and the most dangerous location. Only qualified personnel should handle electrical systems, and never in flooded conditions.' }
+          ]
+        },
+        {
+          id: 's3',
+          narrative: 'The rain continues. Campus security has announced over the PA system to remain on upper floors and await assistance. A student suggests crossing the flooded courtyard to reach the library, which is on higher ground.',
+          question: 'What is the safest action?',
+          choices: [
+            { text: 'Cross the courtyard — the library is closer to the exit', correct: false, feedback: 'Incorrect. Crossing a flooded courtyard is extremely dangerous. Moving water can be much stronger than it appears. Stay where you are.' },
+            { text: 'Stay on the upper floor as instructed and wait for assistance', correct: true, feedback: 'Correct. Follow the PA instructions. Emergency services know the safest routes and timing. Attempting to cross floodwater risks being swept away.' },
+            { text: 'Try to drive out of the campus parking lot', correct: false, feedback: 'Incorrect. Driving through floodwater is one of the leading causes of flood-related deaths. As little as 30 cm of water can float a car.' },
+            { text: 'Go to the roof of the building for better visibility', correct: false, feedback: 'Incorrect. While the roof provides high ground, it exposes you to lightning and severe weather. Stay on upper floors indoors unless specifically directed to the roof by emergency services.' }
+          ]
+        },
+        {
+          id: 's4',
+          narrative: 'The rain has stopped and water levels are slowly receding. Campus security announces that it is safe to begin evacuating the building via the east stairway, which has been inspected.',
+          question: 'What should you do as you leave?',
+          choices: [
+            { text: 'Rush down the stairs quickly to get out', correct: false, feedback: 'Incorrect. Stairs may be wet and slippery. Walk carefully, use handrails, and watch for debris or structural damage.' },
+            { text: 'Walk carefully using handrails, avoid any remaining water, and report damage', correct: true, feedback: 'Correct. Move carefully on potentially slippery surfaces. Avoid touching any water that may still be in contact with electrical systems. Report any damage you observe.' },
+            { text: 'Take the elevator since it is faster', correct: false, feedback: 'Incorrect. Elevators should never be used after flooding. Water damage may have compromised the electrical systems and elevator shaft.' },
+            { text: 'Go back to the ground floor to collect your belongings first', correct: false, feedback: 'Incorrect. Ground floor areas have not been inspected for electrical or structural hazards. Follow the designated evacuation route and do not deviate.' }
+          ]
+        }
+      ]
+    },
+    {
+      id: 'sim-severe-weather',
+      title: 'Severe Thunderstorm on Campus',
+      category: 'weather',
+      icon: 'cloud-lightning',
+      difficulty: 'Intermediate',
+      duration: '8 min',
+      description: 'A severe thunderstorm with lightning strikes campus. Make critical safety decisions.',
+      steps: [
+        {
+          id: 's1',
+          narrative: 'You are walking across the open campus grounds between Block A and the Science Building. Dark clouds have gathered rapidly. You hear thunder rumbling and see a flash of lightning in the distance. The storm is approaching fast.',
+          question: 'What do you do first?',
+          choices: [
+            { text: 'Continue walking — the storm is still far away', correct: false, feedback: 'Incorrect. Lightning can strike from over 15 km away. If you can hear thunder, you are within striking distance. Seek shelter immediately.' },
+            { text: 'Shelter under the large tree near the pathway', correct: false, feedback: 'Incorrect. Trees are one of the most dangerous places during lightning. They attract lightning strikes and can cause fatal ground current or falling branches.' },
+            { text: 'Immediately move to the nearest building and go to an interior room', correct: true, feedback: 'Correct. A substantial building provides the best lightning protection. Move to an interior room on a lower floor, away from windows, plumbing, and electrical equipment.' },
+            { text: 'Lie flat on the ground to make yourself a smaller target', correct: false, feedback: 'Incorrect. Lying flat increases your contact with the ground, making you more vulnerable to ground current from a nearby lightning strike. Get to a building instead.' }
+          ]
+        },
+        {
+          id: 's2',
+          narrative: 'You have reached the Science Building. The storm is directly overhead — lightning is frequent and close. Inside, you see students standing near the large windows watching the storm. Others are using their laptops plugged into wall outlets.',
+          question: 'What should you tell them?',
+          choices: [
+            { text: 'Nothing — they are inside and safe', correct: false, feedback: 'Incorrect. Being inside reduces risk, but standing near windows and using plugged-in electronics during a thunderstorm is still dangerous. Windows can shatter and lightning can travel through wiring.' },
+            { text: 'Move away from windows, unplug electronics, and avoid plumbing fixtures', correct: true, feedback: 'Correct. Windows can shatter from wind or pressure changes. Lightning can travel through electrical wiring and plumbing. Move to interior rooms and unplug devices.' },
+            { text: 'Open the windows to equalize air pressure', correct: false, feedback: 'Incorrect. Opening windows lets in rain and wind, and puts you closer to lightning danger. Keep windows closed and move away from them.' },
+            { text: 'Go to the basement for maximum protection', correct: false, feedback: 'Incorrect. While lower floors are generally safer from wind, basements can flood during severe storms. An interior room on the lowest above-ground floor is ideal.' }
+          ]
+        },
+        {
+          id: 's3',
+          narrative: 'The storm intensifies. The lights flicker and then go out — a power outage. Emergency lighting activates dimly. A student says they feel unwell — they appear flushed, confused, and their skin is hot and dry. It was very hot before the storm.',
+          question: 'What do you suspect and how do you respond?',
+          choices: [
+            { text: 'They are just anxious — give them water and wait', correct: false, feedback: 'Incorrect. Hot, dry skin with confusion indicates heat stroke, not anxiety. Heat stroke is a life-threatening emergency requiring immediate cooling and medical help.' },
+            { text: 'Recognize signs of heat stroke — cool them immediately and call for medical help', correct: true, feedback: 'Correct. Hot/dry skin, confusion, and rapid pulse are signs of heat stroke. Move them to a cool area, apply cool water to their skin, fan them, and call for emergency medical help immediately.' },
+            { text: 'Tell them to go outside and get fresh air', correct: false, feedback: 'Incorrect. Going outside during a severe thunderstorm with lightning is dangerous. Also, heat stroke requires active cooling, not just fresh air.' },
+            { text: 'Give them cold food from the cafeteria', correct: false, feedback: 'Incorrect. Someone with confusion from heat stroke may not be able to safely swallow food. Focus on external cooling and call medical help.' }
+          ]
+        },
+        {
+          id: 's4',
+          narrative: 'The storm has passed. The all-clear announcement is made. As you exit the building, you notice a power line has fallen across the walkway. It is lying on wet ground and appears to be sparking intermittently.',
+          question: 'What is the correct action?',
+          choices: [
+            { text: 'Step over the power line carefully since it seems inactive between sparks', correct: false, feedback: 'Incorrect. A downed power line can be energized even when not visibly sparking. The wet ground conducts electricity, making the area around it lethal.' },
+            { text: 'Stay at least 10 meters away, warn others, and report it to campus security immediately', correct: true, feedback: 'Correct. Downed power lines can energize the ground for several meters around them, especially on wet surfaces. Keep everyone away and report it immediately.' },
+            { text: 'Use a wooden stick to move the power line off the walkway', correct: false, feedback: 'Incorrect. Even wood can conduct electricity at high voltages. Never attempt to move a downed power line. Wait for trained utility workers.' },
+            { text: 'Pour water on it to short-circuit it safely', correct: false, feedback: 'Incorrect. Adding water to an energized power line creates a larger conductive area, increasing the danger zone. Stay away and call emergency services.' }
+          ]
+        }
+      ]
     }
   ];
 

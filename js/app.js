@@ -75,7 +75,7 @@ const App = (() => {
       return;
     }
 
-    if ((hash === 'training-analytics' && !Auth.isStaff()) || (hash === 'activity-management' && !Auth.isAdmin())) { navigateTo('dashboard'); return; }
+    if ((hash === 'training-analytics' && !Auth.isStaff()) || (hash === 'activity-management' && !Auth.isAdmin()) || (hash === 'my-tasks' && !Auth.isStaff())) { navigateTo('dashboard'); return; }
     try { Assignments.processRules(); } catch (error) { console.error(error); }
     renderAppShell(hash);
   }
@@ -265,13 +265,21 @@ const App = (() => {
           <p class="login-subtitle">Access your safety preparedness dashboard.</p>
 
           <div class="demo-accounts">
-            <div class="demo-title">Demo accounts</div>
+            <div class="demo-title">Demo accounts <span style="font-size:11px;color:var(--text-muted);">(password: demo123)</span></div>
             <div class="demo-account-item" onclick="App.fillLogin('student@graphica.demo','demo123')">
               <span class="account-email">student@graphica.demo</span>
               <span class="account-role badge badge-neutral">Student</span>
             </div>
+            <div class="demo-account-item" onclick="App.fillLogin('sneha@greenfield.edu','demo123')">
+              <span class="account-email">sneha@greenfield.edu</span>
+              <span class="account-role badge badge-neutral">Student</span>
+            </div>
             <div class="demo-account-item" onclick="App.fillLogin('staff@graphica.demo','demo123')">
               <span class="account-email">staff@graphica.demo</span>
+              <span class="account-role badge badge-neutral">Staff</span>
+            </div>
+            <div class="demo-account-item" onclick="App.fillLogin('vikram@greenfield.edu','demo123')">
+              <span class="account-email">vikram@greenfield.edu</span>
               <span class="account-role badge badge-neutral">Staff</span>
             </div>
             <div class="demo-account-item" onclick="App.fillLogin('admin@graphica.demo','demo123')">
@@ -392,6 +400,9 @@ const App = (() => {
         <a class="nav-item" data-view="practice" onclick="App.navigateTo('practice')">
           <span class="nav-icon">${icon('target')}</span> Practice
         </a>
+        <a class="nav-item" data-view="assignments" onclick="App.navigateTo('assignments')">
+          <span class="nav-icon">${icon('clipboard-list')}</span> My Assessments
+        </a>
         <div class="nav-section-label">Safety</div>
         <a class="nav-item" data-view="emergency-guide" onclick="App.navigateTo('emergency-guide')">
           <span class="nav-icon">${icon('shield')}</span> Emergency guide
@@ -417,6 +428,11 @@ const App = (() => {
       `;
     }
 
+    if (isStaffUser) {
+      navItems += `<div class="nav-section-label">Staff</div>`;
+      navItems += `<a class="nav-item" data-view="my-tasks" onclick="App.navigateTo('my-tasks')">${icon('clipboard-check')} My Tasks</a>`;
+      navItems += `<a class="nav-item" style="color:var(--red);font-weight:600;cursor:pointer;" onclick="App.openEmergencyBroadcastModal()"><span class="nav-icon" style="color:var(--red);">${icon('siren')}</span> Broadcast Alert</a>`;
+    }
     navItems += `<div class="nav-section-label">Training</div><a class="nav-item" href="#assignments" data-view="assignments">${icon('clipboard-list')} ${isStaffUser ? 'Quiz assignments' : 'Assigned assessments'}</a>${isAdminUser ? `<a class="nav-item" href="#learn" data-view="learn">${icon('book-open')} Learning Hub</a>` : ''}${isStaffUser ? `<a class="nav-item" href="#training-analytics" data-view="training-analytics">${icon('bar-chart-3')} Learning analytics</a>` : ''}${isAdminUser ? `<a class="nav-item" href="#activity-management" data-view="activity-management">${icon('settings')} Activity management</a>` : ''}`;
 
     // Count unread notifications
@@ -464,6 +480,11 @@ const App = (() => {
               </div>
             </div>
             <div class="top-header-right">
+              ${isStaffUser ? `
+                <button class="btn btn-sm" onclick="App.openEmergencyBroadcastModal()" style="display:inline-flex;align-items:center;gap:6px;background:var(--red);color:#fff;font-weight:600;padding:6px 14px;border-radius:6px;border:none;box-shadow:0 2px 8px rgba(229,62,62,0.35);cursor:pointer;" title="Send emergency broadcast to all devices">
+                  ${icon('siren', 16)} <span>Broadcast Alert</span>
+                </button>
+              ` : ''}
               <button class="header-btn notif-trigger" onclick="App.toggleNotificationPanel()" aria-label="Notifications">
                 ${icon('bell', 18)}
                 ${unreadCount > 0 ? '<span class="notification-dot"></span>' : ''}
@@ -543,6 +564,7 @@ const App = (() => {
       'alerts': () => Alerts.renderList(mainView),
       'drills': () => { Drills.renderStudentView(mainView); TrainingUI.drills(mainView); },
       'progress': () => { Dashboard.renderProgress(mainView); TrainingUI.progress(mainView); },
+      'my-tasks': () => Admin.renderMyTasks(mainView),
       'settings': () => Admin.renderSettings(mainView),
       'admin-dashboard': () => { Admin.renderDashboard(mainView); TrainingUI.dashboard(mainView); },
       'admin-hazards': () => Admin.renderHazards(mainView),
@@ -922,6 +944,146 @@ const App = (() => {
     return map[moduleId] || 'icon-fire';
   }
 
+  function openEmergencyBroadcastModal() {
+    if (!Auth.isStaff()) {
+      showToast('Unauthorized: Only Staff and Admins can broadcast emergency alerts.', 'error');
+      return;
+    }
+
+    const activeData = (typeof SocketClient !== 'undefined' && SocketClient.getActiveUsersData)
+      ? SocketClient.getActiveUsersData()
+      : { totalConnected: 1 };
+    const connectedCount = activeData.totalConnected || 1;
+
+    showModal({
+      title: '🚨 Dispatch Real-Time Emergency Broadcast',
+      body: `
+        <div style="background:var(--red-bg);border-left:4px solid var(--red);padding:12px 16px;border-radius:8px;margin-bottom:18px;">
+          <div style="font-weight:700;color:var(--red);font-size:14px;display:flex;align-items:center;gap:6px;">
+            ${icon('siren', 18)} High-Urgency Emergency Broadcast
+          </div>
+          <p style="font-size:13px;color:var(--text);margin-top:4px;line-height:1.5;">
+            This emergency alert will <strong>immediately trigger on all connected device(s)</strong> with real-time warning overlays, browser sound sirens, and emergency instructions.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Alert Headline / Title <span class="required">*</span></label>
+          <input class="form-input" id="broadcast-alert-title" placeholder="e.g., Critical Fire Hazard — Evacuate Block A Immediately" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Threat Severity</label>
+            <select class="form-select" id="broadcast-alert-severity">
+              <option value="critical" selected>🚨 Critical (Immediate Danger / Evacuate)</option>
+              <option value="warning">⚠️ Warning (Hazard Detected / Caution)</option>
+              <option value="info">ℹ️ Informational (Safety Notice)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Threat Type</label>
+            <select class="form-select" id="broadcast-alert-type">
+              <option value="fire">Fire & Smoke Hazard</option>
+              <option value="earthquake">Earthquake Tremor</option>
+              <option value="weather">Severe Weather / Storm</option>
+              <option value="intruder">Lockdown / Security Threat</option>
+              <option value="chemical">Chemical / Gas Leak</option>
+              <option value="drill">Emergency Drill Exercise</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Affected Building / Area</label>
+            <select class="form-select" id="broadcast-alert-building">
+              <option value="all" selected>All Campus Buildings (Campus-Wide)</option>
+              <option value="block-a">Block A (Academic — Engineering)</option>
+              <option value="block-b">Block B (Academic — Sciences)</option>
+              <option value="science">Science Building (Laboratories)</option>
+              <option value="admin">Administration Block</option>
+              <option value="library">Central Library</option>
+              <option value="auditorium">Main Auditorium</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Audio Siren Alarm</label>
+            <div style="display:flex;align-items:center;gap:10px;height:42px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer;">
+                <input type="checkbox" id="broadcast-alert-sound" checked style="width:18px;height:18px;">
+                Sound emergency siren on devices
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Instructions & Action Steps <span class="required">*</span></label>
+          <textarea class="form-textarea" id="broadcast-alert-message" rows="3" placeholder="Provide clear, concise instructions for students and staff (e.g., Proceed to Emergency Exit 2 immediately. Do not use elevators. Gather at Assembly Point A.)" required></textarea>
+        </div>
+      `,
+      footer: `
+        <button class="btn btn-secondary" onclick="App.closeModal()">Cancel</button>
+        <button class="btn btn-danger" id="btn-dispatch-broadcast" onclick="App.dispatchEmergencyBroadcast()" style="background:var(--red);color:#fff;font-weight:700;">
+          ${icon('send', 16)} Dispatch Emergency Broadcast
+        </button>
+      `
+    });
+    refreshIcons();
+  }
+
+  async function dispatchEmergencyBroadcast() {
+    const title = document.getElementById('broadcast-alert-title')?.value?.trim();
+    const message = document.getElementById('broadcast-alert-message')?.value?.trim();
+    const severity = document.getElementById('broadcast-alert-severity')?.value || 'critical';
+    const type = document.getElementById('broadcast-alert-type')?.value || 'fire';
+    const building = document.getElementById('broadcast-alert-building')?.value || 'all';
+    const soundAlert = document.getElementById('broadcast-alert-sound')?.checked !== false;
+
+    if (!title || !message) {
+      showToast('Please enter both an alert headline and instructions.', 'error');
+      return;
+    }
+
+    const dispatchBtn = document.getElementById('btn-dispatch-broadcast');
+    if (dispatchBtn) {
+      dispatchBtn.disabled = true;
+      dispatchBtn.innerHTML = 'Broadcasting to devices…';
+    }
+
+    try {
+      if (typeof SocketClient !== 'undefined' && SocketClient.broadcastEmergency) {
+        const res = await SocketClient.broadcastEmergency({
+          title,
+          message,
+          severity,
+          type,
+          building,
+          soundAlert
+        });
+        closeModal();
+        showToast(`🚨 Emergency broadcast sent to ${res.deliveredCount || 'all'} connected device(s)!`, 'success');
+      } else {
+        closeModal();
+        showToast('Emergency alert saved locally.', 'info');
+      }
+
+      if (currentView === 'alerts' && typeof Alerts !== 'undefined') {
+        Alerts.renderList(document.getElementById('main-view'));
+      } else if (currentView === 'admin-alerts' && typeof Admin !== 'undefined') {
+        Admin.renderAlerts(document.getElementById('main-view'));
+      }
+    } catch (err) {
+      console.error(err);
+      if (dispatchBtn) {
+        dispatchBtn.disabled = false;
+        dispatchBtn.innerHTML = 'Dispatch Emergency Broadcast';
+      }
+      showToast('Failed to broadcast: ' + (err.message || 'Server error'), 'error');
+    }
+  }
+
   return {
     init,
     navigateTo,
@@ -947,7 +1109,9 @@ const App = (() => {
     refreshIcons,
     getSeverityBadge,
     getStatusBadge,
-    getModuleIconClass
+    getModuleIconClass,
+    openEmergencyBroadcastModal,
+    dispatchEmergencyBroadcast
   };
 })();
 

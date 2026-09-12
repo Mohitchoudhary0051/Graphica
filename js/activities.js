@@ -55,20 +55,39 @@ const Activities = (() => {
         enabled: true,
       }),
     );
-    ["escape", "peer", "route"].forEach((type) =>
-      defaults.push({
-        id: type + "-fire",
-        type,
-        topic: "fire-safety",
-        title: {
-          escape: "Emergency Escape Challenge",
-          peer: "Review a Safety Plan",
-          route: "Practice the Route",
-        }[type],
-        difficulty: "medium",
-        enabled: true,
-      }),
-    );
+    ["escape", "peer", "route"].forEach((type) => {
+      if (type === "escape") {
+        // Add escape challenges for all disaster types
+        [
+          { topic: "fire-safety", title: "Fire Escape Challenge", category: "fire" },
+          { topic: "earthquake-safety", title: "Earthquake Escape Challenge", category: "earthquake" },
+          { topic: "electrical-safety", title: "Electrical Emergency Escape", category: "electrical" },
+          { topic: "flood-safety", title: "Flood Escape Challenge", category: "flood" },
+          { topic: "severe-weather", title: "Severe Weather Escape Challenge", category: "weather" },
+        ].forEach((esc) =>
+          defaults.push({
+            id: "escape-" + esc.category,
+            type: "escape",
+            topic: esc.topic,
+            title: esc.title,
+            difficulty: "medium",
+            enabled: true,
+          }),
+        );
+      } else {
+        defaults.push({
+          id: type + "-fire",
+          type,
+          topic: "fire-safety",
+          title: {
+            peer: "Review a Safety Plan",
+            route: "Practice the Route",
+          }[type],
+          difficulty: "medium",
+          enabled: true,
+        });
+      }
+    });
     [
       "Which campus risk is most overlooked?",
       "What should the next drill emphasize?",
@@ -443,9 +462,11 @@ const Activities = (() => {
         `<p>Would you report this hazard? The form will be marked as a training exercise.</p>${T.button("Report hazard", "hunt-report", i)} ${T.button("Continue", "hunt-continue")}`;
   }
   function decisionSteps() {
+    // For escape challenges, map by topic category; for decision challenges, match by topic
+    const topicCategory = active.topic.replace('-safety', '').replace('severe-', '');
     const sim = DemoData.simulations.find((s) =>
       active.type === "escape"
-        ? s.category === "fire"
+        ? s.category === topicCategory || active.topic.startsWith(s.category)
         : active.topic.startsWith(s.category),
     );
     return sim?.steps || DemoData.simulations[0].steps;
