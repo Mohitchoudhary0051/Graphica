@@ -5,6 +5,7 @@
 
 const Simulations = (() => {
   let currentSim = null;
+  let resultSaved = false;
   let currentStep = 0;
   let simAnswers = [];
   let stepSubmitted = false;
@@ -73,6 +74,7 @@ const Simulations = (() => {
   // ── Start Simulation ──────────────────
   function start(container, simId) {
     const sims = DemoData.simulations;
+    resultSaved = false;
     currentSim = sims.find(s => s.id === simId);
 
     if (!currentSim) {
@@ -147,6 +149,7 @@ const Simulations = (() => {
           }).join('')}
         </div>
 
+        <ol class="training-timeline">${simAnswers.map((answer, i) => answer === undefined ? '' : `<li>Stage ${i+1}: ${App.escapeHtml(currentSim.steps[i].choices[answer].text)}</li>`).join('')}</ol>
         ${stepSubmitted && simAnswers[currentStep] !== undefined ? `
           <div class="sim-feedback ${step.choices[simAnswers[currentStep]].correct ? 'feedback-correct' : 'feedback-incorrect'}">
             <strong>${step.choices[simAnswers[currentStep]].correct ? '✓ Correct decision' : '✗ Wrong decision'}</strong><br>
@@ -163,6 +166,7 @@ const Simulations = (() => {
 
   function selectChoice(index) {
     if (stepSubmitted) return;
+    if (!currentSim || !currentSim.steps[currentStep]?.choices[index]) return;
     simAnswers[currentStep] = index;
     stepSubmitted = true;
     const container = document.getElementById('main-view');
@@ -170,6 +174,7 @@ const Simulations = (() => {
   }
 
   function nextStep() {
+    if (!stepSubmitted) return;
     if (currentStep < currentSim.steps.length - 1) {
       currentStep++;
       stepSubmitted = false;
@@ -182,7 +187,8 @@ const Simulations = (() => {
 
   function showResults() {
     const container = document.getElementById('main-view');
-    if (!currentSim) return;
+    if (!currentSim || resultSaved) return;
+    resultSaved = true;
 
     let correctCount = 0;
     let criticalMistakes = 0;
@@ -214,6 +220,7 @@ const Simulations = (() => {
       date: new Date().toISOString().split('T')[0]
     });
     Storage.saveData(Storage.KEYS.PROGRESS, allProgress);
+    Training.meaningful('simulation', currentSim.category + '-safety', Training.id(), pct);
 
     // Determine recommended module
     const recommendedModule = currentSim.category + '-safety';

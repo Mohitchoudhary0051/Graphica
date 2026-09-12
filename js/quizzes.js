@@ -8,10 +8,18 @@ const Quizzes = (() => {
   let selectedAnswer = -1;
   let answers = [];
   let submitted = false;
+  let assignmentId = null;
+  let resultSaved = false;
+  let startedAt = 0;
 
-  function start(container, moduleId) {
+  function start(container, moduleId, assignedId = null) {
+    assignmentId = assignedId;
+    let assigned = null;
+    if (assignmentId) { try { assigned = Assignments.begin(assignmentId); moduleId = assigned.quizId; } catch (error) { App.showToast(error.message, 'error'); return; } }
+    resultSaved = false;
+    startedAt = Date.now();
     const allQuizzes = Storage.getData(Storage.KEYS.QUIZZES, {});
-    const questions = allQuizzes[moduleId];
+    const questions = assigned?.draft?.questions || allQuizzes[moduleId];
 
     if (!questions || questions.length === 0) {
       container.innerHTML = `
@@ -32,6 +40,12 @@ const Quizzes = (() => {
     answers = new Array(questions.length).fill(-1);
     submitted = false;
 
+    if (assigned?.draft) {
+      answers = currentQuiz.questions.map((q,i) => assigned.draft.answers[i] ?? -1);
+      currentQuestionIndex = assigned.draft.index || 0;
+      submitted = !!assigned.draft.submitted;
+      startedAt = assigned.draft.startedAt;
+    }
     renderQuestion(container);
   }
 
@@ -73,10 +87,10 @@ const Quizzes = (() => {
               cls += ' selected';
             }
             return `
-              <div class="${cls}" onclick="Quizzes.selectAnswer(${i})" ${wasSubmitted ? 'style="pointer-events:none;"' : ''}>
+              <button type="button" class="${cls}" onclick="Quizzes.selectAnswer(${i})" ${wasSubmitted ? 'disabled' : ''}>
                 <span class="option-marker">${letters[i]}</span>
                 <span>${App.escapeHtml(opt)}</span>
-              </div>
+              </button>
             `;
           }).join('')}
         </div>
@@ -109,10 +123,15 @@ const Quizzes = (() => {
     App.refreshIcons();
   }
 
+  function persistDraft() {
+    if (assignmentId && !resultSaved) Assignments.saveDraft(assignmentId, {answers, index:currentQuestionIndex, submitted});
+  }
+
   function selectAnswer(index) {
-    if (submitted) return;
+    if (submitted || resultSaved || !currentQuiz || !Number.isInteger(index) || index < 0 || index >= currentQuiz.questions[currentQuestionIndex].options.length) return;
     answers[currentQuestionIndex] = index;
     selectedAnswer = index;
+    persistDraft();
 
     // Update UI
     document.querySelectorAll('.quiz-option').forEach((opt, i) => {
@@ -127,17 +146,20 @@ const Quizzes = (() => {
   function submitAnswer() {
     if (answers[currentQuestionIndex] === -1) return;
     submitted = true;
+    persistDraft();
     const container = document.getElementById('main-view');
     renderQuestion(container);
   }
 
   function nextQuestion() {
+    if (!submitted || resultSaved) return;
     if (currentQuestionIndex < currentQuiz.questions.length - 1) {
       currentQuestionIndex++;
       submitted = false;
       selectedAnswer = answers[currentQuestionIndex];
       // If already answered, show submitted state
       if (selectedAnswer !== -1) submitted = true;
+      persistDraft();
       const container = document.getElementById('main-view');
       renderQuestion(container);
     } else {
@@ -150,6 +172,7 @@ const Quizzes = (() => {
       currentQuestionIndex--;
       submitted = answers[currentQuestionIndex] !== -1;
       selectedAnswer = answers[currentQuestionIndex];
+      persistDraft();
       const container = document.getElementById('main-view');
       renderQuestion(container);
     }
@@ -157,7 +180,7 @@ const Quizzes = (() => {
 
   function showResults() {
     const container = document.getElementById('main-view');
-    if (!currentQuiz) return;
+    if (!currentQuiz || resultSaved || answers.some(a => a === -1)) return;
 
     let correct = 0;
     currentQuiz.questions.forEach((q, i) => {
@@ -168,11 +191,20 @@ const Quizzes = (() => {
     const pct = Math.round((correct / total) * 100);
     const scoreClass = pct >= 80 ? 'score-high' : pct >= 60 ? 'score-medium' : 'score-low';
 
+    let assignedResult = null;
+    if (assignmentId) { try { assignedResult = Assignments.submit(assignmentId, { answers: [...answers] }); } catch(error) { App.showToast(error.message, 'error'); return; } }
+    resultSaved = true;
+
     // Save attempt
     const user = Auth.getCurrentUser();
     const allProgress = Storage.getData(Storage.KEYS.PROGRESS, {});
     if (!allProgress[user.id]) allProgress[user.id] = { modules: {}, quizAttempts: [], simAttempts: [], drillParticipation: [] };
+    allProgress[user.id].quizAttempts = allProgress[user.id].quizAttempts || [];
     allProgress[user.id].quizAttempts.push({
+      id: assignedResult?.id || Training.id(),
+      assignmentId,
+      answers: [...answers],
+      seconds: Math.round((Date.now()-startedAt)/1000),
       quizId: currentQuiz.moduleId,
       score: correct,
       total: total,
@@ -180,6 +212,7 @@ const Quizzes = (() => {
       date: new Date().toISOString().split('T')[0]
     });
     Storage.saveData(Storage.KEYS.PROGRESS, allProgress);
+    Training.meaningful('quiz', currentQuiz.moduleId, assignedResult?.id || Training.id(), pct);
 
     container.innerHTML = `
       <div class="flex items-center gap-3 mb-6">
@@ -187,6 +220,7 @@ const Quizzes = (() => {
           ${App.icon('arrow-left', 16)} Back to modules
         </button>
         <h1 style="font-size:var(--text-xl);font-weight:600;">Quiz results</h1>
+        ${assignmentId ? `<span class="badge badge-neutral">${App.escapeHtml(Assignments.updateAssignmentStatus(assignmentId).status.replaceAll('-', ' '))}</span>` : ''}
       </div>
 
       <div class="card" style="max-width:640px;">
@@ -205,8 +239,8 @@ const Quizzes = (() => {
             <button class="btn btn-secondary" onclick="Quizzes.reviewAnswers()">
               ${App.icon('eye', 14)} Review answers
             </button>
-            <button class="btn btn-primary" onclick="Quizzes.start(document.getElementById('main-view'), '${currentQuiz.moduleId}')">
-              ${App.icon('rotate-cw', 14)} Retry quiz
+            <button class="btn btn-primary" onclick="${assignmentId ? `App.navigateTo('assignments'); Assignments.render(document.getElementById('main-view'))` : `Quizzes.start(document.getElementById('main-view'), '${currentQuiz.moduleId}')`}">
+              ${App.icon('rotate-cw', 14)} ${assignmentId ? 'Back to assignments' : 'Retry quiz'}
             </button>
           </div>
         </div>

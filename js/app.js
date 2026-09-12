@@ -15,6 +15,7 @@ const App = (() => {
   // ── Initialize Application ────────────
   function init() {
     DemoData.initializeDemoData();
+    TrainingUI.init();
 
     // Route based on hash or auth state
     window.addEventListener('hashchange', handleRoute);
@@ -39,6 +40,7 @@ const App = (() => {
   // ── Routing ───────────────────────────
   function handleRoute() {
     const hash = window.location.hash.slice(1) || '';
+    Activities.cleanup();
 
     if (!hash || hash === 'home') {
       if (Auth.isAuthenticated()) {
@@ -73,6 +75,8 @@ const App = (() => {
       return;
     }
 
+    if ((hash === 'training-analytics' && !Auth.isStaff()) || (hash === 'activity-management' && !Auth.isAdmin())) { navigateTo('dashboard'); return; }
+    try { Assignments.processRules(); } catch (error) { console.error(error); }
     renderAppShell(hash);
   }
 
@@ -383,7 +387,7 @@ const App = (() => {
           <span class="nav-icon">${icon('layout-dashboard')}</span> Dashboard
         </a>
         <a class="nav-item" data-view="learn" onclick="App.navigateTo('learn')">
-          <span class="nav-icon">${icon('book-open')}</span> Learn
+          <span class="nav-icon">${icon('book-open')}</span> Learning Hub
         </a>
         <a class="nav-item" data-view="practice" onclick="App.navigateTo('practice')">
           <span class="nav-icon">${icon('target')}</span> Practice
@@ -412,6 +416,8 @@ const App = (() => {
         </a>
       `;
     }
+
+    navItems += `<div class="nav-section-label">Training</div><a class="nav-item" href="#assignments" data-view="assignments">${icon('clipboard-list')} ${isStaffUser ? 'Quiz assignments' : 'Assigned assessments'}</a>${isAdminUser ? `<a class="nav-item" href="#learn" data-view="learn">${icon('book-open')} Learning Hub</a>` : ''}${isStaffUser ? `<a class="nav-item" href="#training-analytics" data-view="training-analytics">${icon('bar-chart-3')} Learning analytics</a>` : ''}${isAdminUser ? `<a class="nav-item" href="#activity-management" data-view="activity-management">${icon('settings')} Activity management</a>` : ''}`;
 
     // Count unread notifications
     const notifications = Storage.getData(Storage.KEYS.NOTIFICATIONS, []);
@@ -524,18 +530,21 @@ const App = (() => {
 
     // Static routes
     const staticRoutes = {
-      'dashboard': () => Dashboard.render(mainView),
-      'learn': () => Learning.render(mainView),
+      'dashboard': () => { Dashboard.render(mainView); TrainingUI.dashboard(mainView); },
+      'learn': () => Activities.hub(mainView),
+      'assignments': () => Assignments.render(mainView),
+      'training-analytics': () => TrainingUI.analytics(mainView),
+      'activity-management': () => Activities.management(mainView),
       'practice': () => Simulations.renderList(mainView),
       'emergency-guide': () => Learning.renderEmergencyGuide(mainView),
-      'evacuation-map': () => Maps.render(mainView),
+      'evacuation-map': () => { Maps.render(mainView); mainView.insertAdjacentHTML('afterbegin', '<section class="training"><a class="btn btn-secondary" href="#activity-route-fire">Practice the Route</a></section>'); },
       'report-hazard': () => Hazards.renderReportForm(mainView),
       'hazard-history': () => Hazards.renderHistory(mainView),
       'alerts': () => Alerts.renderList(mainView),
-      'drills': () => Drills.renderStudentView(mainView),
-      'progress': () => Dashboard.renderProgress(mainView),
+      'drills': () => { Drills.renderStudentView(mainView); TrainingUI.drills(mainView); },
+      'progress': () => { Dashboard.renderProgress(mainView); TrainingUI.progress(mainView); },
       'settings': () => Admin.renderSettings(mainView),
-      'admin-dashboard': () => Admin.renderDashboard(mainView),
+      'admin-dashboard': () => { Admin.renderDashboard(mainView); TrainingUI.dashboard(mainView); },
       'admin-hazards': () => Admin.renderHazards(mainView),
       'admin-learning': () => Admin.renderLearningMgmt(mainView),
       'admin-simulations': () => Admin.renderSimulationMgmt(mainView),
@@ -549,6 +558,8 @@ const App = (() => {
 
     if (staticRoutes[view]) {
       staticRoutes[view]();
+    } else if (view.startsWith('activity-')) {
+      Activities.open(view.slice(9));
     } else if (view.startsWith('learn-')) {
       Learning.renderModule(mainView, view.replace('learn-', ''));
     } else if (view.startsWith('quiz-')) {
@@ -730,9 +741,11 @@ const App = (() => {
     const notifications = Storage.getData(Storage.KEYS.NOTIFICATIONS, []);
     const idx = notifications.findIndex(n => n.id === id);
     if (idx !== -1) {
+      if (notifications[idx].userId !== Auth.getCurrentUser()?.id) return;
       notifications[idx].read = true;
       Storage.saveData(Storage.KEYS.NOTIFICATIONS, notifications);
       renderNotifications();
+      if (notifications[idx].route) { closeNotificationPanel(); navigateTo(notifications[idx].route); }
       // Update dot
       const dot = document.querySelector('.notification-dot');
       const user = Auth.getCurrentUser();
@@ -757,7 +770,7 @@ const App = (() => {
   function addNotification(userId, message, type = 'info') {
     const notifications = Storage.getData(Storage.KEYS.NOTIFICATIONS, []);
     notifications.push({
-      id: 'notif-' + Date.now(),
+      id: 'notif-' + crypto.randomUUID(),
       userId,
       message,
       type,

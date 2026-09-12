@@ -179,11 +179,12 @@ const Dashboard = (() => {
               ${renderScoreRow('Learning', learningScore)}
               ${renderScoreRow('Quizzes', quizScore)}
               ${renderScoreRow('Simulations', simScore)}
+              ${renderScoreRow('Interactive activities', Training.interactiveScore(user.id))}
               ${renderScoreRow('Drill participation', drillScore)}
             </div>
           </div>
           <div class="disclaimer mt-4">
-            Preparedness score is calculated from learning completion (25%), quiz performance (25%), simulation performance (25%), and drill participation (25%).
+            Preparedness score is calculated from learning completion (20%), quiz performance (20%), simulation performance (20%), interactive activities (20%), and drill participation (20%).
           </div>
         </div>
 
@@ -361,7 +362,7 @@ const Dashboard = (() => {
     if (completed.length === 0) return 0;
 
     const participated = (p.drillParticipation || []).length;
-    return Math.round((participated / completed.length) * 100);
+    return Math.min(100, Math.round((participated / completed.length) * 100));
   }
 
   function calculatePreparednessScore(userId) {
@@ -369,7 +370,7 @@ const Dashboard = (() => {
     const quiz = calculateQuizAverage(userId);
     const sim = calculateSimAverage(userId);
     const drill = calculateDrillParticipation(userId);
-    return Math.round((learning * 0.25) + (quiz * 0.25) + (sim * 0.25) + (drill * 0.25));
+    return Math.min(100, Math.round((learning + quiz + sim + drill + Training.interactiveScore(userId)) / 5));
   }
 
   return {
