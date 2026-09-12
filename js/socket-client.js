@@ -173,12 +173,13 @@ const SocketClient = (() => {
     updateGlobalSirenBanner(false);
   }
 
-  // ── 3. Active Polling while Siren is Blaring (Fail-Safe against Mobile Sleep) ──
+  // ── 3. Active Polling while Siren or Alert is Active (Fail-Safe against Mobile Sleep) ──
   function startSirenActivePolling() {
     if (sirenPollTimer) clearInterval(sirenPollTimer);
 
     sirenPollTimer = setInterval(async () => {
-      if (!isAlarmPlaying) {
+      const hasOverlay = !!document.getElementById('emergency-live-broadcast-overlay');
+      if (!isAlarmPlaying && !hasOverlay) {
         clearInterval(sirenPollTimer);
         sirenPollTimer = null;
         return;
@@ -507,6 +508,9 @@ const SocketClient = (() => {
       try { navigator.vibrate([600, 200, 600, 200, 1000, 400, 600]); } catch (e) {}
     }
 
+    // Ensure active polling is running while the alert overlay is active
+    startSirenActivePolling();
+
     showEmergencyModal(alert, sender, soundStarted);
   }
 
@@ -781,70 +785,62 @@ const SocketClient = (() => {
   // Called when siren is deactivated by Staff/Admin (on ALL devices)
   function applySirenSilencedUI(silencer) {
     sirenSilencedByAuthority = true;
+    const currentAlertId = activeAlertId;
+    activeAlertId = null;
+
+    // 1. Immediately terminate siren sound on hardware
     stopEmergencySound();
 
-    const headerBanner = document.getElementById('modal-header-banner');
-    if (headerBanner) {
-      headerBanner.style.background = '#059669';
-      headerBanner.innerHTML = `
-        <div style="display:flex;align-items:center;gap:10px;font-weight:800;font-size:15px;letter-spacing:1px;text-transform:uppercase;color:#FFF;">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          EMERGENCY SIREN DEACTIVATED
-        </div>
-        <span style="font-size:11px;background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:20px;font-weight:700;color:#FFF;">
-          ALL CLEAR
-        </span>
-      `;
+    // 2. Automatically remove the emergency alert overlay from all connected devices
+    const overlay = document.getElementById('emergency-live-broadcast-overlay');
+    if (overlay) {
+      overlay.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+      overlay.style.opacity = '0';
+      overlay.style.pointerEvents = 'none';
+      setTimeout(() => {
+        try {
+          if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        } catch (e) {}
+      }, 250);
     }
 
-    const card = document.getElementById('emergency-modal-card');
-    if (card) {
-      card.style.borderColor = '#10B981';
-      card.style.animation = 'none';
+    // 3. Remove staff global emergency controller banner
+    const globalBanner = document.getElementById('global-staff-siren-controller');
+    if (globalBanner) {
+      try {
+        if (globalBanner.parentNode) globalBanner.parentNode.removeChild(globalBanner);
+      } catch (e) {}
     }
 
-    const soundBtn = document.getElementById('btn-tap-for-sound');
-    if (soundBtn) soundBtn.remove();
-
-    const actionsContainer = document.getElementById('emergency-modal-actions');
-    if (actionsContainer) {
-      actionsContainer.innerHTML = `
-        <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#A7F3D0;">
-          <span style="font-size:16px;">✓</span>
-          <span>Siren silenced by <strong>${silencer ? silencer.name : 'Campus Staff'}</strong> (${silencer ? silencer.role.toUpperCase() : 'STAFF'}).</span>
-        </div>
-        <button id="btn-dismiss-alert-final" style="
-          background: #10B981;
-          color: #FFFFFF;
-          border: none;
-          padding: 12px 24px;
-          border-radius: 8px;
-          font-weight: 800;
-          font-size: 14px;
-          cursor: pointer;
-        ">
-          Dismiss Notice & Return
-        </button>
-      `;
-
-      const dismissBtn = document.getElementById('btn-dismiss-alert-final');
-      if (dismissBtn) {
-        dismissBtn.addEventListener('click', () => {
-          stopEmergencySound();
-          const overlay = document.getElementById('emergency-live-broadcast-overlay');
-          if (overlay) overlay.remove();
+    // 4. Mark local alert record as resolved/deactivated
+    if (typeof Storage !== 'undefined') {
+      try {
+        const alerts = Storage.getData(Storage.KEYS.ALERTS, []);
+        let updated = false;
+        alerts.forEach(a => {
+          if ((currentAlertId && a.id === currentAlertId) || a.active) {
+            a.active = false;
+            a.resolvedAt = new Date().toISOString();
+            a.resolvedBy = silencer ? silencer.name : 'Campus Administration';
+            updated = true;
+          }
         });
-      }
+        if (updated) {
+          Storage.saveData(Storage.KEYS.ALERTS, alerts);
+          if (typeof Alerts !== 'undefined' && Alerts.renderList) {
+            const container = document.getElementById('main-content');
+            if (container && document.querySelector('.page-title')?.textContent?.includes('alerts')) {
+              Alerts.renderList(container);
+            }
+          }
+        }
+      } catch (e) {}
     }
 
-    const lockNotice = document.getElementById('student-lock-notice');
-    if (lockNotice) {
-      lockNotice.style.background = 'rgba(16, 185, 129, 0.15)';
-      lockNotice.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-      lockNotice.innerHTML = `
-        <span style="font-size:18px;">✅</span>
-        <div style="font-size:13px;color:#A7F3D0;">Siren deactivated by campus safety authority. Situation resolved or under control.</div>
-      `;
+    // 5. Display reassuring all-clear toast notification on the restored normal interface
+    if (typeof App !== 'undefined' && App.showToast) {
+      const silencerName = silencer ? silencer.name : 'Campus Administration';
+      App.showToast(`✓ All-Clear: Siren & emergency alert deactivated by ${silencerName}. Normal interface restored.`, 'success');
     }
   }
 
