@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="GRAPHICA — A practical disaster preparedness platform for safer schools and colleges. Learn, practice, report, and respond.">
+  <title>GRAPHICA — Smart Disaster Preparedness</title>
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23242424'/><text x='16' y='23' font-size='18' font-weight='bold' text-anchor='middle' fill='%23F7F5F0' font-family='system-ui'>G</text></svg>">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js" defer></script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Loading state while JS initializes -->
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:16px;">
+      <div style="width:40px;height:40px;background:#242424;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#F7F5F0;font-weight:700;font-size:16px;">G</div>
+      <div style="font-size:14px;color:#9B9890;">Loading GRAPHICA…</div>
+    </div>
+  </div>
+
+  <!-- Scripts (order matters: dependencies first) -->
+  <script src="js/storage.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/learning.js"></script>
+  <script src="js/quizzes.js"></script>
+  <script src="js/simulations.js"></script>
+  <script src="js/hazards.js"></script>
+  <script src="js/alerts.js"></script>
+  <script src="js/maps.js"></script>
+  <script src="js/drills.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
