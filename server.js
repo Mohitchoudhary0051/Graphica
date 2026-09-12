@@ -217,6 +217,19 @@ wss.on('connection', (ws, req) => {
             }
           }
         }
+      } else if (message.type === 'SILENCE_EMERGENCY_ALARM') {
+        // Staff/Admin silenced emergency siren — broadcast to all connected devices
+        const silencePayload = JSON.stringify({
+          type: 'SILENCE_EMERGENCY_ALARM',
+          alertId: message.alertId,
+          silencer: message.silencer || { name: 'Authorized Staff', role: 'staff' },
+          timestamp: new Date().toISOString()
+        });
+        for (const [otherWs] of connectedClients.entries()) {
+          if (otherWs.readyState === WebSocket.OPEN) {
+            otherWs.send(silencePayload);
+          }
+        }
       } else if (message.type === 'PING') {
         ws.send(JSON.stringify({ type: 'PONG', timestamp: Date.now() }));
       }
