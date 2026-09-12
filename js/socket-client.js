@@ -3,10 +3,11 @@
    Features:
    1. Cloud Real-Time Pub/Sub Relay (Cross-Device, works worldwide on GitHub Pages, Vercel, and Localhost)
    2. Local Node.js WebSocket Bridge (/ws)
-   3. Continuous Dual-Tone Siren: Keeps ringing indefinitely until deactivated by Admin or Staff ONLY
-   4. Restricted Deactivation: Students/Guests cannot silence the siren
-   5. Campus-Wide Siren Silence Synchronization across all devices
-   6. Mobile Autoplay Unlocker & Instant Screen Strobe / Vibration
+   3. Continuous Dual-Tone Siren: Keeps ringing indefinitely until deactivated by Admin or Staff
+   4. Triple-Channel Silence Sync: WebSocket + 1.2s Active Cloud Polling + Local BroadcastChannel
+   5. Fail-Safe Audio Kill: 0-gain zeroing + oscillator disconnect + audioContext.suspend()
+   6. Student Device Turn-Off: Automatically stops when Admin turns off, plus manual check & silence button
+   7. Mobile Autoplay Unlocker & Instant Screen Strobe / Vibration
    ============================================ */
 
 const SocketClient = (() => {
@@ -23,9 +24,11 @@ const SocketClient = (() => {
   let alarmOscillator = null;
   let alarmGainNode = null;
   let sirenLoopTimer = null;
+  let sirenPollTimer = null;
   let isAlarmPlaying = false;
   let audioUnlocked = false;
   let activeAlertId = null;
+  let sirenSilencedByAuthority = false;
 
   // Active connected devices registry
   const connectedDevices = new Map();
@@ -69,7 +72,7 @@ const SocketClient = (() => {
     window.addEventListener('keydown', unlockAudioEngine, { passive: true });
   }
 
-  // ── 2. Continuous Emergency Siren (Rings indefinitely until turned off by Admin/Staff) ──
+  // ── 2. Continuous Emergency Siren & Complete Audio Kill ──
   function startContinuousSiren() {
     try {
       initAudio();
@@ -81,6 +84,7 @@ const SocketClient = (() => {
 
       if (isAlarmPlaying) return true;
       isAlarmPlaying = true;
+      sirenSilencedByAuthority = false;
 
       // Authentic two-tone European / Hi-Lo emergency siren (880Hz / 659.25Hz)
       const osc = audioContext.createOscillator();
@@ -100,15 +104,13 @@ const SocketClient = (() => {
       function scheduleTones() {
         if (!isAlarmPlaying || !osc) return;
         const now = audioContext.currentTime;
-        // Schedule alternating high-low tones for the next 4.2 seconds
         for (let i = 0; i < 6; i++) {
-          osc.frequency.setValueAtTime(880, now + i * 0.7);      // High tone (A5)
-          osc.frequency.setValueAtTime(659.25, now + i * 0.7 + 0.35); // Low tone (E5)
+          osc.frequency.setValueAtTime(880, now + i * 0.7);
+          osc.frequency.setValueAtTime(659.25, now + i * 0.7 + 0.35);
         }
       }
 
       scheduleTones();
-      // Loop continuously without auto-stop!
       sirenLoopTimer = setInterval(scheduleTones, 4000);
 
       osc.start();
@@ -116,6 +118,10 @@ const SocketClient = (() => {
       alarmGainNode = gain;
 
       updateGlobalSirenBanner(true);
+
+      // Start active cloud polling to ensure silence command is caught even if WS drops
+      startSirenActivePolling();
+
       return true;
     } catch (e) {
       console.warn('[GRAPHICA AUDIO] Audio playback blocked by policy:', e);
@@ -123,23 +129,90 @@ const SocketClient = (() => {
     }
   }
 
+  // Guaranteed fail-safe audio kill: Zero gain, disconnect oscillator, suspend audio context
   function stopEmergencySound() {
+    isAlarmPlaying = false;
+
     if (sirenLoopTimer) {
       clearInterval(sirenLoopTimer);
       sirenLoopTimer = null;
     }
+
+    if (sirenPollTimer) {
+      clearInterval(sirenPollTimer);
+      sirenPollTimer = null;
+    }
+
+    // 1. Immediately drop gain to 0 and cancel all scheduled future tones
+    if (alarmGainNode && audioContext) {
+      try {
+        alarmGainNode.gain.cancelScheduledValues(audioContext.currentTime);
+        alarmGainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        alarmGainNode.disconnect();
+      } catch (e) {}
+      alarmGainNode = null;
+    }
+
+    // 2. Stop and disconnect oscillator
     if (alarmOscillator) {
       try {
+        alarmOscillator.frequency.cancelScheduledValues(audioContext.currentTime);
         alarmOscillator.stop();
         alarmOscillator.disconnect();
       } catch (e) {}
       alarmOscillator = null;
     }
-    isAlarmPlaying = false;
+
+    // 3. Suspend audio context so no sound can escape to hardware
+    if (audioContext) {
+      try {
+        audioContext.suspend().catch(() => {});
+      } catch (e) {}
+    }
+
     updateGlobalSirenBanner(false);
   }
 
-  // ── 3. Role Permission Check: Only Staff & Admin Can Silence Siren ──
+  // ── 3. Active Polling while Siren is Blaring (Fail-Safe against Mobile Sleep) ──
+  function startSirenActivePolling() {
+    if (sirenPollTimer) clearInterval(sirenPollTimer);
+
+    sirenPollTimer = setInterval(async () => {
+      if (!isAlarmPlaying) {
+        clearInterval(sirenPollTimer);
+        sirenPollTimer = null;
+        return;
+      }
+
+      try {
+        const res = await fetch(`${CLOUD_PUB_URL}/json?poll=1&since=25s`, { cache: 'no-store' });
+        if (res.ok) {
+          const text = await res.text();
+          const lines = text.trim().split('\n');
+          for (const line of lines) {
+            if (!line) continue;
+            try {
+              const item = JSON.parse(line);
+              if (item.event === 'message' && item.message) {
+                const data = JSON.parse(item.message);
+                if (data.type === 'SILENCE_EMERGENCY_ALARM') {
+                  console.log('[GRAPHICA POLL] Silence command detected via active poll!');
+                  sirenSilencedByAuthority = true;
+                  stopEmergencySound();
+                  applySirenSilencedUI(data.silencer);
+                  clearInterval(sirenPollTimer);
+                  sirenPollTimer = null;
+                  break;
+                }
+              }
+            } catch (err) {}
+          }
+        }
+      } catch (e) {}
+    }, 1200);
+  }
+
+  // ── 4. Role Permission Check: Only Staff & Admin Can Authorize Silence ──
   function canSilenceAlarm() {
     const user = (typeof Auth !== 'undefined' && Auth.getCurrentUser) ? Auth.getCurrentUser() : null;
     return user && (user.role === 'admin' || user.role === 'staff');
@@ -149,7 +222,7 @@ const SocketClient = (() => {
   function silenceEmergencyAlarm() {
     if (!canSilenceAlarm()) {
       if (typeof App !== 'undefined' && App.showToast) {
-        App.showToast('Unauthorized: Only Campus Staff and Admins can silence the emergency siren.', 'error');
+        App.showToast('Unauthorized: Only Campus Staff and Admins can authorize siren deactivation.', 'error');
       }
       return false;
     }
@@ -164,6 +237,8 @@ const SocketClient = (() => {
       },
       timestamp: new Date().toISOString()
     };
+
+    sirenSilencedByAuthority = true;
 
     // 1. Broadcast silence command to all connected phones and computers via Cloud Pub/Sub
     publishCloudMessage(payload);
@@ -181,7 +256,7 @@ const SocketClient = (() => {
     return true;
   }
 
-  // ── 4. Real-Time Cloud Relay Connection (Cross-Device Everywhere) ──
+  // ── 5. Real-Time Cloud Relay Connection ──
   function connectCloudRelay() {
     try {
       cloudWs = new WebSocket(CLOUD_WS_URL);
@@ -214,7 +289,7 @@ const SocketClient = (() => {
     }
   }
 
-  // ── 5. Local Node.js WebSocket Bridge ──
+  // ── 6. Local Node.js WebSocket Bridge ──
   function connectLocalServer() {
     const isLocal = window.location.hostname === 'localhost' ||
                     window.location.hostname === '127.0.0.1' ||
@@ -244,7 +319,7 @@ const SocketClient = (() => {
     } catch (e) {}
   }
 
-  // ── 6. BroadcastChannel & Storage Fallback ──
+  // ── 7. BroadcastChannel & Storage Fallback ──
   try {
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       broadcastChannel = new BroadcastChannel('graphica_emergency_channel');
@@ -265,16 +340,17 @@ const SocketClient = (() => {
     });
   }
 
-  // ── 7. Payload Dispatch & Receiving ──
+  // ── 8. Payload Dispatch & Receiving ──
   function handleIncomingPayload(payload) {
     if (!payload || !payload.type) return;
 
     if (payload.type === 'EMERGENCY_BROADCAST') {
       activeAlertId = payload.alert ? payload.alert.id : null;
+      sirenSilencedByAuthority = false;
       onEmergencyBroadcastReceived(payload.alert, payload.sender);
     } else if (payload.type === 'SILENCE_EMERGENCY_ALARM') {
-      // Emergency siren silenced by Staff/Admin!
       console.log(`[GRAPHICA] Siren silenced campus-wide by ${payload.silencer?.name} (${payload.silencer?.role})`);
+      sirenSilencedByAuthority = true;
       stopEmergencySound();
       applySirenSilencedUI(payload.silencer);
     } else if (payload.type === 'HEARTBEAT') {
@@ -341,7 +417,8 @@ const SocketClient = (() => {
         method: 'POST',
         headers: {
           'Title': data.type || 'GRAPHICA_ALERT',
-          'Priority': data.type === 'EMERGENCY_BROADCAST' ? 'high' : 'default'
+          'Priority': (data.type === 'EMERGENCY_BROADCAST' || data.type === 'SILENCE_EMERGENCY_ALARM') ? '5' : '3',
+          'Tags': data.type === 'SILENCE_EMERGENCY_ALARM' ? 'white_check_mark' : 'rotating_light'
         },
         body: JSON.stringify(data)
       }).catch(() => {});
@@ -357,10 +434,13 @@ const SocketClient = (() => {
 
     try {
       localStorage.setItem('graphica_live_broadcast_event', JSON.stringify(data));
+      if (data.type === 'SILENCE_EMERGENCY_ALARM') {
+        localStorage.setItem('graphica_last_silenced_timestamp', Date.now().toString());
+      }
     } catch (e) {}
   }
 
-  // ── 8. Emergency Broadcast Trigger (Staff / Admin) ──
+  // ── 9. Emergency Broadcast Trigger (Staff / Admin) ──
   async function broadcastEmergency(alertData) {
     const user = Auth.getCurrentUser();
     if (!user || (user.role !== 'admin' && user.role !== 'staff')) {
@@ -383,6 +463,7 @@ const SocketClient = (() => {
     };
 
     activeAlertId = newAlert.id;
+    sirenSilencedByAuthority = false;
 
     if (typeof Storage !== 'undefined') {
       const existing = Storage.getData(Storage.KEYS.ALERTS, []);
@@ -396,10 +477,7 @@ const SocketClient = (() => {
       sender: { name: user.name, role: user.role }
     };
 
-    // Broadcast across all connected phones and computers worldwide
     publishCloudMessage(payload);
-
-    // Trigger on current sender device
     onEmergencyBroadcastReceived(newAlert, { name: user.name, role: user.role });
 
     return {
@@ -409,7 +487,7 @@ const SocketClient = (() => {
     };
   }
 
-  // ── 9. Emergency Alert Modal & Restricted Deactivation UI ──
+  // ── 10. Emergency Alert Modal & Restricted Deactivation UI ──
   function onEmergencyBroadcastReceived(alert, sender) {
     if (typeof Storage !== 'undefined') {
       const existing = Storage.getData(Storage.KEYS.ALERTS, []);
@@ -422,7 +500,6 @@ const SocketClient = (() => {
 
     let soundStarted = false;
     if (alert.soundAlert !== false) {
-      // Siren starts ringing continuously until deactivated by Staff/Admin
       soundStarted = startContinuousSiren();
     }
 
@@ -559,7 +636,7 @@ const SocketClient = (() => {
                 background: #DC2626;
                 color: #FFFFFF;
                 border: none;
-                padding: 14px 20px;
+                padding: 14px 22px;
                 border-radius: 8px;
                 font-weight: 800;
                 font-size: 14px;
@@ -573,11 +650,23 @@ const SocketClient = (() => {
                 🔕 Silence Siren (Campus-Wide)
               </button>
             ` : `
-              <!-- STUDENTS CANNOT SILENCE SIREN -->
-              <span style="font-size:12px;color:#A1A1AA;display:flex;align-items:center;gap:6px;">
-                <span style="width:8px;height:8px;border-radius:50%;background:#EF4444;display:inline-block;animation:pulseGlow 1s infinite;"></span>
-                Siren locked under staff safety control
-              </span>
+              <!-- STUDENT DEVICE TURN OFF BUTTON (VERIFIES DEACTIVATION) -->
+              <button id="btn-student-silence-device" style="
+                background: #374151;
+                color: #F9FAFB;
+                border: 1px solid #4B5563;
+                padding: 12px 18px;
+                border-radius: 8px;
+                font-weight: 700;
+                font-size: 13px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+              ">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+                🔕 Turn Off Siren on My Device
+              </button>
             `}
 
             <button id="btn-acknowledge-safe" style="
@@ -594,7 +683,7 @@ const SocketClient = (() => {
               gap: 8px;
               box-shadow: 0 4px 15px rgba(37,99,235,0.5);
             ">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
               I Am Safe / Report Status
             </button>
           </div>
@@ -615,10 +704,58 @@ const SocketClient = (() => {
     }
 
     // Staff/Admin Silence Handler
-    const silenceBtn = document.getElementById('btn-staff-silence');
-    if (silenceBtn) {
-      silenceBtn.addEventListener('click', () => {
+    const staffSilenceBtn = document.getElementById('btn-staff-silence');
+    if (staffSilenceBtn) {
+      staffSilenceBtn.addEventListener('click', () => {
         silenceEmergencyAlarm();
+      });
+    }
+
+    // Student Local Turn Off Handler (Checks if Admin has silenced it)
+    const studentSilenceBtn = document.getElementById('btn-student-silence-device');
+    if (studentSilenceBtn) {
+      studentSilenceBtn.addEventListener('click', async () => {
+        studentSilenceBtn.disabled = true;
+        studentSilenceBtn.innerText = 'Checking Staff Status…';
+
+        // 1. Check if authority has already silenced it or query cloud relay
+        let isAuthorized = sirenSilencedByAuthority;
+
+        if (!isAuthorized) {
+          try {
+            const res = await fetch(`${CLOUD_PUB_URL}/json?poll=1&since=60s`, { cache: 'no-store' });
+            if (res.ok) {
+              const text = await res.text();
+              const lines = text.trim().split('\n');
+              for (const line of lines) {
+                if (!line) continue;
+                const item = JSON.parse(line);
+                if (item.message) {
+                  const data = JSON.parse(item.message);
+                  if (data.type === 'SILENCE_EMERGENCY_ALARM') {
+                    isAuthorized = true;
+                    applySirenSilencedUI(data.silencer);
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        // 2. If deactivated by staff/admin or if student confirmed safety
+        if (isAuthorized) {
+          stopEmergencySound();
+          if (typeof App !== 'undefined' && App.showToast) {
+            App.showToast('✓ Siren stopped. Confirmed all-clear from admin.', 'success');
+          }
+        } else {
+          studentSilenceBtn.disabled = false;
+          studentSilenceBtn.innerText = '🔕 Turn Off Siren on My Device';
+          if (typeof App !== 'undefined' && App.showToast) {
+            App.showToast('Active emergency protocol: Siren can only be deactivated by staff/admin.', 'error');
+          }
+        }
       });
     }
 
@@ -632,7 +769,7 @@ const SocketClient = (() => {
 
         if (typeof App !== 'undefined' && App.showToast) {
           if (isStaffOrAdmin) {
-            App.showToast('Status acknowledged. Use the red button above to silence the siren when all-clear.', 'info');
+            App.showToast('Status acknowledged. Click Silence Siren above to deactivate the alarm when all-clear.', 'info');
           } else {
             App.showToast('Status reported safe. Siren remains active until deactivated by staff.', 'info');
           }
@@ -643,6 +780,9 @@ const SocketClient = (() => {
 
   // Called when siren is deactivated by Staff/Admin (on ALL devices)
   function applySirenSilencedUI(silencer) {
+    sirenSilencedByAuthority = true;
+    stopEmergencySound();
+
     const headerBanner = document.getElementById('modal-header-banner');
     if (headerBanner) {
       headerBanner.style.background = '#059669';
@@ -670,7 +810,7 @@ const SocketClient = (() => {
     if (actionsContainer) {
       actionsContainer.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#A7F3D0;">
-          <span>✓</span>
+          <span style="font-size:16px;">✓</span>
           <span>Siren silenced by <strong>${silencer ? silencer.name : 'Campus Staff'}</strong> (${silencer ? silencer.role.toUpperCase() : 'STAFF'}).</span>
         </div>
         <button id="btn-dismiss-alert-final" style="
@@ -687,10 +827,14 @@ const SocketClient = (() => {
         </button>
       `;
 
-      document.getElementById('btn-dismiss-alert-final').addEventListener('click', () => {
-        const overlay = document.getElementById('emergency-live-broadcast-overlay');
-        if (overlay) overlay.remove();
-      });
+      const dismissBtn = document.getElementById('btn-dismiss-alert-final');
+      if (dismissBtn) {
+        dismissBtn.addEventListener('click', () => {
+          stopEmergencySound();
+          const overlay = document.getElementById('emergency-live-broadcast-overlay');
+          if (overlay) overlay.remove();
+        });
+      }
     }
 
     const lockNotice = document.getElementById('student-lock-notice');
@@ -749,9 +893,12 @@ const SocketClient = (() => {
 
     document.body.appendChild(banner);
 
-    document.getElementById('btn-header-silence-now').addEventListener('click', () => {
-      silenceEmergencyAlarm();
-    });
+    const headerSilenceBtn = document.getElementById('btn-header-silence-now');
+    if (headerSilenceBtn) {
+      headerSilenceBtn.addEventListener('click', () => {
+        silenceEmergencyAlarm();
+      });
+    }
   }
 
   function parseDeviceType(ua) {
@@ -832,7 +979,7 @@ const SocketClient = (() => {
     }
   }
 
-  // ── 10. Initialize Connections ──
+  // ── 11. Initialize Connections ──
   if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', () => {
       connectCloudRelay();
