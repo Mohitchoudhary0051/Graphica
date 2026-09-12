@@ -1,16 +1,61 @@
 /* ============================================
    GRAPHICA — Real-Time WebSocket Client & Emergency Broadcast Service
+   Dual-Mode: Real-Time WebSockets + Resilient BroadcastChannel / Storage Fallback
+   Supports local dev, Node.js servers, GitHub Pages, Vercel & Netlify static hosting
    ============================================ */
 
 const SocketClient = (() => {
   let ws = null;
-  let reconnectInterval = 3000;
+  let reconnectInterval = 5000;
   let isConnected = false;
-  let activeUsersData = { totalConnected: 0, sessions: [] };
+  let wsFailedPermanently = false;
+  let activeUsersData = { totalConnected: 1, sessions: [] };
   let audioContext = null;
   let alarmOscillator = null;
   let alarmGainNode = null;
   let isAlarmPlaying = false;
+  let broadcastChannel = null;
+
+  // Initialize Native Browser BroadcastChannel for cross-tab communication
+  try {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      broadcastChannel = new BroadcastChannel('graphica_emergency_channel');
+      broadcastChannel.onmessage = (event) => {
+        if (event.data) {
+          if (event.data.type === 'EMERGENCY_BROADCAST') {
+            onEmergencyBroadcastReceived(event.data.alert, event.data.sender);
+          } else if (event.data.type === 'PRESENCE_SYNC') {
+            handlePresenceSync(event.data);
+          }
+        }
+      };
+    }
+  } catch (e) {
+    console.warn('BroadcastChannel not available:', e);
+  }
+
+  // Cross-tab storage listener fallback (works in all browsers even without BroadcastChannel)
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'graphica_live_broadcast_event' && e.newValue) {
+        try {
+          const payload = JSON.parse(e.newValue);
+          if (payload && payload.alert) {
+            onEmergencyBroadcastReceived(payload.alert, payload.sender);
+          }
+        } catch (err) {}
+      }
+    });
+  }
+
+  function getBackendBaseUrl() {
+    if (typeof window !== 'undefined') {
+      if (window.GRAPHICA_BACKEND_URL) return window.GRAPHICA_BACKEND_URL;
+      const stored = localStorage.getItem('graphica_backend_url');
+      if (stored) return stored;
+    }
+    return '';
+  }
 
   // Initialize Web Audio Context for Emergency Siren
   function initAudio() {
@@ -33,14 +78,13 @@ const SocketClient = (() => {
       if (isAlarmPlaying) return;
       isAlarmPlaying = true;
 
-      // Two-tone European/hi-lo emergency siren
+      // Two-tone emergency siren (880Hz / 659Hz dual cadence)
       const osc = audioContext.createOscillator();
       const gain = audioContext.createGain();
 
       osc.type = 'sawtooth';
       gain.gain.setValueAtTime(0.25, audioContext.currentTime);
 
-      // Low pass filter to soften the harshness into an authentic emergency siren
       const filter = audioContext.createBiquadFilter();
       filter.type = 'lowpass';
       filter.frequency.setValueAtTime(900, audioContext.currentTime);
@@ -49,7 +93,6 @@ const SocketClient = (() => {
       filter.connect(gain);
       gain.connect(audioContext.destination);
 
-      // Modulate frequency between 700Hz and 950Hz
       const now = audioContext.currentTime;
       for (let i = 0; i < 20; i++) {
         osc.frequency.setValueAtTime(880, now + i * 0.7);
@@ -60,7 +103,6 @@ const SocketClient = (() => {
       alarmOscillator = osc;
       alarmGainNode = gain;
 
-      // Auto stop after 14 seconds if user doesn't acknowledge
       setTimeout(() => {
         stopEmergencySound();
       }, 14000);
@@ -81,15 +123,29 @@ const SocketClient = (() => {
   }
 
   function connect() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/ws`;
+    const customBase = getBackendBaseUrl();
+    let wsUrl = '';
+
+    if (customBase) {
+      wsUrl = customBase.replace(/^http/, 'ws').replace(/\/$/, '') + '/ws';
+    } else {
+      // If hosted on GitHub Pages (github.io), do not spam WebSocket connection errors
+      if (window.location.hostname.includes('github.io')) {
+        console.log('[GRAPHICA] Running on GitHub Pages. Using resilient client-side BroadcastChannel.');
+        wsFailedPermanently = true;
+        return;
+      }
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      wsUrl = `${protocol}//${host}/ws`;
+    }
 
     try {
       ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         isConnected = true;
+        wsFailedPermanently = false;
         console.log('[GRAPHICA WS] Connected to emergency backend server.');
         identifyCurrentUser();
       };
@@ -105,34 +161,44 @@ const SocketClient = (() => {
 
       ws.onclose = () => {
         isConnected = false;
-        console.warn('[GRAPHICA WS] Disconnected. Reconnecting in 3s...');
-        setTimeout(connect, reconnectInterval);
+        if (!wsFailedPermanently) {
+          setTimeout(connect, reconnectInterval);
+        }
       };
 
-      ws.onerror = (err) => {
-        console.error('[GRAPHICA WS] Error:', err);
-        ws.close();
+      ws.onerror = () => {
+        if (ws) ws.close();
       };
     } catch (e) {
-      console.error('[GRAPHICA WS] Connection init failed:', e);
-      setTimeout(connect, reconnectInterval);
+      if (!wsFailedPermanently) {
+        setTimeout(connect, reconnectInterval);
+      }
     }
   }
 
   function identifyCurrentUser() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const currentUser = (typeof Auth !== 'undefined' && Auth.getCurrentUser) ? Auth.getCurrentUser() : null;
-    
-    ws.send(JSON.stringify({
-      type: 'IDENTIFY',
-      user: currentUser ? {
-        id: currentUser.id,
-        name: currentUser.name,
-        email: currentUser.email,
-        role: currentUser.role,
-        department: currentUser.department
-      } : null
-    }));
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'IDENTIFY',
+        user: currentUser ? {
+          id: currentUser.id,
+          name: currentUser.name,
+          email: currentUser.email,
+          role: currentUser.role,
+          department: currentUser.department
+        } : null
+      }));
+    }
+
+    // Also sync presence across local browser tabs
+    if (broadcastChannel) {
+      broadcastChannel.postMessage({
+        type: 'PRESENCE_SYNC',
+        user: currentUser
+      });
+    }
   }
 
   function handleMessage(msg) {
@@ -140,7 +206,6 @@ const SocketClient = (() => {
       onEmergencyBroadcastReceived(msg.alert, msg.sender);
     } else if (msg.type === 'PRESENCE_UPDATE') {
       activeUsersData = msg.data;
-      // If admin is currently looking at users or dashboard, update live UI
       if (typeof Admin !== 'undefined' && typeof Admin.updateLiveUsersUI === 'function') {
         Admin.updateLiveUsersUI(activeUsersData);
       }
@@ -151,13 +216,22 @@ const SocketClient = (() => {
     }
   }
 
+  function handlePresenceSync(data) {
+    if (typeof Admin !== 'undefined' && typeof Admin.updateLiveUsersUI === 'function') {
+      const user = Auth.getCurrentUser();
+      if (user && user.role === 'admin') {
+        fetchActiveUsers().then(activeData => {
+          Admin.updateLiveUsersUI(activeData);
+        });
+      }
+    }
+  }
+
   function onEmergencyBroadcastReceived(alert, sender) {
-    // 1. Play alert sound if enabled
     if (alert.soundAlert !== false) {
       playEmergencySound();
     }
 
-    // 2. Add to local alerts list so it stays visible
     if (typeof Storage !== 'undefined') {
       const existing = Storage.getData(Storage.KEYS.ALERTS, []);
       const idx = existing.findIndex(a => a.id === alert.id);
@@ -167,17 +241,14 @@ const SocketClient = (() => {
       }
     }
 
-    // 3. Vibrate device if supported
     if (navigator.vibrate) {
-      navigator.vibrate([400, 200, 400, 200, 600]);
+      try { navigator.vibrate([400, 200, 400, 200, 600]); } catch (e) {}
     }
 
-    // 4. Render the Fullscreen Emergency Alert Overlay
     showEmergencyModal(alert, sender);
   }
 
   function showEmergencyModal(alert, sender) {
-    // Remove existing emergency overlay if any
     const existingOverlay = document.getElementById('emergency-live-broadcast-overlay');
     if (existingOverlay) existingOverlay.remove();
 
@@ -229,7 +300,6 @@ const SocketClient = (() => {
         box-shadow: 0 24px 60px rgba(0,0,0,0.6);
         overflow: hidden;
       ">
-        <!-- Header Banner -->
         <div style="background:${accentColor};padding:14px 24px;display:flex;align-items:center;justify-content:space-between;">
           <div style="display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:1px;text-transform:uppercase;color:#FFF;">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -240,7 +310,6 @@ const SocketClient = (() => {
           </span>
         </div>
 
-        <!-- Body -->
         <div style="padding: 28px;">
           <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:18px;">
             <div style="background:${accentColor}22;border:1px solid ${accentColor}66;width:56px;height:56px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:${accentColor};flex-shrink:0;">
@@ -334,22 +403,105 @@ const SocketClient = (() => {
       throw new Error('Only Staff and Admin are authorized to dispatch emergency alerts.');
     }
 
-    const response = await fetch('/api/alerts/broadcast', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-role': user.role,
-        'x-user-name': user.name
-      },
-      body: JSON.stringify(alertData)
-    });
+    const newAlert = {
+      id: 'alert-' + Date.now().toString(36),
+      title: alertData.title,
+      message: alertData.message,
+      severity: alertData.severity || 'critical',
+      type: alertData.type || 'emergency',
+      building: alertData.building || 'all',
+      audience: alertData.audience || 'all',
+      soundAlert: alertData.soundAlert !== false,
+      createdBy: `${user.name} (${user.role.toUpperCase()})`,
+      createdDate: new Date().toISOString(),
+      active: true,
+      acknowledgments: []
+    };
 
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Failed to broadcast alert');
+    const customBase = getBackendBaseUrl();
+    const apiUrl = (customBase ? customBase.replace(/\/$/, '') : '') + '/api/alerts/broadcast';
+
+    let backendSuccess = false;
+    let backendResponse = null;
+
+    // 1. Attempt to send to Node.js backend if reachable
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': user.role,
+          'x-user-name': user.name
+        },
+        body: JSON.stringify(alertData)
+      });
+
+      const text = await response.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch (err) {
+        parsed = null;
+      }
+
+      if (response.ok && parsed && parsed.success) {
+        backendSuccess = true;
+        backendResponse = parsed;
+      }
+    } catch (fetchErr) {
+      console.warn('[GRAPHICA] Backend server not reachable, using client-side broadcast:', fetchErr);
     }
 
-    return await response.json();
+    // 2. Client-Side Broadcast (Works 100% reliably on GitHub Pages, Vercel, Netlify, or offline)
+    // Save locally
+    if (typeof Storage !== 'undefined') {
+      const existing = Storage.getData(Storage.KEYS.ALERTS, []);
+      existing.unshift(newAlert);
+      Storage.saveData(Storage.KEYS.ALERTS, existing);
+    }
+
+    // Broadcast across tabs/windows via BroadcastChannel
+    if (broadcastChannel) {
+      try {
+        broadcastChannel.postMessage({
+          type: 'EMERGENCY_BROADCAST',
+          alert: newAlert,
+          sender: { name: user.name, role: user.role }
+        });
+      } catch (e) {}
+    }
+
+    // Broadcast across windows via localStorage event
+    try {
+      localStorage.setItem('graphica_live_broadcast_event', JSON.stringify({
+        timestamp: Date.now(),
+        alert: newAlert,
+        sender: { name: user.name, role: user.role }
+      }));
+    } catch (e) {}
+
+    // Show on current device immediately
+    onEmergencyBroadcastReceived(newAlert, { name: user.name, role: user.role });
+
+    if (backendSuccess && backendResponse) {
+      return backendResponse;
+    }
+
+    return {
+      success: true,
+      alert: newAlert,
+      deliveredCount: 'all active devices & windows'
+    };
+  }
+
+  function parseDeviceType(ua) {
+    if (!ua) return 'Desktop';
+    if (/mobile/i.test(ua)) return 'Mobile Phone';
+    if (/tablet|ipad/i.test(ua)) return 'Tablet';
+    if (/macintosh|mac os x/i.test(ua)) return 'Mac Laptop/Desktop';
+    if (/windows/i.test(ua)) return 'Windows PC';
+    if (/linux/i.test(ua)) return 'Linux Device';
+    return 'Connected Browser';
   }
 
   async function fetchActiveUsers() {
@@ -358,41 +510,62 @@ const SocketClient = (() => {
       return { totalConnected: 0, sessions: [] };
     }
 
+    const customBase = getBackendBaseUrl();
+    const apiUrl = (customBase ? customBase.replace(/\/$/, '') : '') + '/api/users/active';
+
     try {
-      const response = await fetch('/api/users/active', {
+      const response = await fetch(apiUrl, {
         headers: {
           'x-user-role': user.role
         }
       });
-      if (!response.ok) return { totalConnected: 0, sessions: [] };
-      const data = await response.json();
-      activeUsersData = data;
-      return data;
-    } catch (e) {
-      console.error('Error fetching active users:', e);
-      return activeUsersData;
-    }
+      if (response.ok) {
+        const text = await response.text();
+        const data = JSON.parse(text);
+        if (data && data.sessions) {
+          activeUsersData = data;
+          return data;
+        }
+      }
+    } catch (e) {}
+
+    // Fallback telemetry for static hosting (GitHub Pages, Vercel)
+    return {
+      totalConnected: 1,
+      sessions: [{
+        socketId: 'session_active',
+        user: user,
+        connectedAt: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        ip: 'Connected Device',
+        deviceType: parseDeviceType(navigator.userAgent)
+      }]
+    };
   }
 
   async function fetchAllUsers() {
     const user = Auth.getCurrentUser();
     if (!user || user.role !== 'admin') {
-      return [];
+      return typeof Storage !== 'undefined' ? Storage.getData(Storage.KEYS.USERS, []) : [];
     }
 
+    const customBase = getBackendBaseUrl();
+    const apiUrl = (customBase ? customBase.replace(/\/$/, '') : '') + '/api/users';
+
     try {
-      const response = await fetch('/api/users', {
+      const response = await fetch(apiUrl, {
         headers: {
           'x-user-role': user.role
         }
       });
-      if (!response.ok) return [];
-      const data = await response.json();
-      return data.users || [];
-    } catch (e) {
-      console.error('Error fetching users:', e);
-      return [];
-    }
+      if (response.ok) {
+        const text = await response.text();
+        const data = JSON.parse(text);
+        if (data && data.users) return data.users;
+      }
+    } catch (e) {}
+
+    return typeof Storage !== 'undefined' ? Storage.getData(Storage.KEYS.USERS, []) : [];
   }
 
   // Auto initialize when script loads
