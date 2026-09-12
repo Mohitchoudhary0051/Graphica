@@ -322,6 +322,7 @@ const Learning = (() => {
     }
 
     Storage.saveData(Storage.KEYS.PROGRESS, allProgress);
+    if (allProgress[user.id]?.modules?.[moduleId]?.status === 'completed') Training.meaningful('lesson', moduleId, 'lesson-' + moduleId, 100);
 
     // Update tab indicator
     const tab = document.querySelector(`.tab-item[data-tab="${sectionId}"]`);
@@ -361,6 +362,7 @@ const Learning = (() => {
       App.addNotification(user.id, `${module.title} module completed.`, 'learning');
     }
 
+    Training.meaningful('lesson', moduleId, 'lesson-' + moduleId, 100);
     App.showToast('Module completed! Well done.', 'success');
     App.navigateTo('learn');
   }

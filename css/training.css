@@ -1,0 +1,305 @@
+/* Scoped additions reuse GRAPHICA's existing institutional palette. */
+.training {
+  color: var(--text-primary);
+  margin-bottom: 24px;
+}
+.training h2 {
+  font-size: 22px;
+  margin: 12px 0;
+}
+.training h3 {
+  font-size: 17px;
+  margin: 10px 0;
+}
+.training p {
+  margin: 12px 0;
+  line-height: 1.65;
+}
+.training .card {
+  margin: 16px 0;
+  padding: 22px;
+}
+.training a:not(.btn) {
+  color: #76501f;
+  text-decoration: underline;
+}
+.training-filters,
+.training-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.training-grid .card {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+}
+.training-grid .card .btn {
+  margin-top: auto;
+}
+.training label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+.training input:not([type="checkbox"]),
+.training select,
+.training textarea {
+  display: block;
+  width: 100%;
+  border: 1px solid #c7c1b5;
+  border-radius: 4px;
+  background: white;
+  color: #292820;
+  padding: 10px;
+  margin: 5px 0;
+  font: inherit;
+}
+.training textarea {
+  min-height: 90px;
+}
+.training input[type="checkbox"] {
+  margin-right: 10px;
+  width: 18px;
+  height: 18px;
+  vertical-align: middle;
+  accent-color: #3e6650;
+}
+.training button {
+  white-space: normal;
+  min-height: 44px;
+  text-align: left;
+}
+.training .training-option {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #d6d0c5;
+  border-radius: 4px;
+  font-size: 15px;
+}
+.training-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.training-choices {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0;
+}
+.training-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.training-stats > div {
+  padding: 16px;
+  background: #efede5;
+  border: 1px solid #ddd7ca;
+  border-radius: 4px;
+}
+.training-stats strong {
+  display: block;
+  font-size: 24px;
+}
+.training-stats span {
+  font-size: 12px;
+  display: block;
+}
+.training-feedback:empty {
+  display: none;
+}
+.training-feedback,
+.training-answer {
+  background: #f1eee5;
+  border-left: 3px solid #86733e;
+  padding: 16px;
+  margin: 16px 0;
+  line-height: 1.7;
+}
+.training-flash {
+  max-width: 780px;
+  min-height: 300px;
+}
+.training-answer {
+  animation: answer-in 180ms ease-out;
+}
+.training-flash h2 {
+  line-height: 1.6;
+}
+.training [aria-pressed="true"] {
+  border: 2px solid #41634d;
+  background: #e6eee5;
+}
+.training .matching-grid button {
+  min-height: 90px;
+  justify-content: center;
+}
+.training-scene {
+  position: relative;
+  max-width: 900px;
+  border: 1px solid #bcb3a3;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.training-scene svg {
+  width: 100%;
+  display: block;
+}
+.training-scene .scene-hotspot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border: 2px solid #625541;
+  border-radius: 50%;
+  background: #fff9;
+  color: #342d23;
+  font-size: 22px;
+  cursor: pointer;
+  text-align: center;
+}
+.training-scene .found {
+  background: #386348;
+  color: white;
+  opacity: 1;
+}
+.compact-scene {
+  max-width: 520px;
+  margin-bottom: 16px;
+}
+.extinguisher {
+  display: block;
+  max-width: 180px;
+  margin: 0 auto;
+}
+.training video {
+  width: 100%;
+  max-height: 440px;
+  background: #282b26;
+}
+.training-timeline {
+  padding-left: 26px;
+  margin: 20px 0;
+  border-left: 2px solid #b3b8a5;
+  list-style: decimal;
+}
+.training-timeline li {
+  padding: 7px 0;
+  line-height: 1.6;
+}
+.training-route {
+  padding: 25px;
+  background: #ede9df;
+  border: 1px solid #c9c0ae;
+}
+.training-bar {
+  display: grid;
+  grid-template-columns: 145px minmax(60px, 1fr) 120px;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 0;
+  font-size: 14px;
+}
+.training progress {
+  width: 100%;
+  height: 12px;
+  accent-color: #446c50;
+}
+.training-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 30px;
+  color: #516344;
+}
+.training blockquote {
+  padding: 12px;
+  border-left: 2px solid #b9ad93;
+  margin: 12px 0;
+}
+.training details {
+  margin: 18px 0;
+  padding: 12px;
+  border: 1px solid #d6d0c5;
+}
+.training summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.training :focus-visible,
+.quiz-option:focus-visible {
+  outline: 3px solid #8a5b1e;
+  outline-offset: 3px;
+}
+.quiz-option {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: inherit;
+}
+.training .data-table td {
+  white-space: normal;
+  min-width: 135px;
+}
+.training .badge {
+  white-space: normal;
+}
+.training [disabled] {
+  cursor: default;
+}
+@keyframes answer-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 600px) {
+  .training-filters,
+  .training-grid {
+    grid-template-columns: 1fr;
+  }
+  .training .card {
+    padding: 16px;
+  }
+  .training-bar {
+    grid-template-columns: 90px 1fr 85px;
+    font-size: 12px;
+  }
+  .training-scene {
+    overflow: visible;
+    margin: 25px 0;
+  }
+  .training-scene .scene-hotspot {
+    width: 44px;
+    height: 44px;
+  }
+  .training-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -146,6 +146,13 @@ const Hazards = (() => {
         </div>
       </div>
     `;
+    const trainingDraft = Training.read('hazard_training_draft', null);
+    if (trainingDraft?.userId === Auth.getCurrentUser()?.id) {
+      document.getElementById('hazard-category').value = trainingDraft.category;
+      document.getElementById('hazard-title').value = trainingDraft.title;
+      document.getElementById('hazard-description').value = 'Fictional learning exercise, not a real campus incident. Confirm real hazards separately.';
+      Storage.removeData('graphica_hazard_training_draft');
+    }
     App.refreshIcons();
   }
 
